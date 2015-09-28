@@ -1,0 +1,16 @@
+flags:
+packages:
+- '.'
+- ../glfw-pal
+- ../gl-pal
+- ../linear-extra
+- ../lens-extra
+- ../halive
+extra-deps:
+- inline-c-0.5.4.3
+- inline-c-cpp-0.1.0.0
+# For tests
+- GLFW-b-1.4.7.2
+- bindings-GLFW-3.1.1.3
+resolver: lts-3.0
+arch:     x86_64
