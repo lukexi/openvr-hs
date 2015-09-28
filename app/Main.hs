@@ -5,5 +5,6 @@ import Graphics.VR.OpenVR
 main :: IO ()
 main = do
   putStrLn "Calling OpenVR"
-  initOpenVR
+  system <- initOpenVR
+  putStrLn $ "Got system: " ++ show system
   putStrLn "Called OpenVR"
