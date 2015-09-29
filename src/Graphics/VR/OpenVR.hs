@@ -2,6 +2,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ViewPatterns #-}
 module Graphics.VR.OpenVR where
 
 import Foreign
@@ -18,6 +19,8 @@ C.include "openvr.h"
 C.include "stdio.h"
 
 newtype IVRSystem = IVRSystem { unIVRSystem :: Ptr () } deriving Show
+
+newtype IVRCompositor = IVRCompositor { unIVRCompositor :: Ptr () } deriving Show
 
 -- | Temporarily allocate an array of the given size, 
 -- pass it to a foreign function, then peek it before it is discarded
@@ -50,3 +53,50 @@ getRenderTargetSize (IVRSystem systemPtr) =
       vr::IVRSystem *system = (vr::IVRSystem *)$(void* systemPtr);
       system->GetRecommendedRenderTargetSize($(uint32_t* xPtr), $(uint32_t* yPtr));
     }|]
+
+getCompositor = do
+  compositorPtr <- [C.block| void* {
+    vr::HmdError error = vr::HmdError_None;
+
+    vr::IVRCompositor* compositor = (vr::IVRCompositor*)vr::VR_GetGenericInterface(vr::IVRCompositor_Version, &error);
+
+    if ( error != vr::HmdError_None )
+    {
+      compositor = NULL;
+
+      printf( "Compositor initialization failed with error: %s\n", vr::VR_GetStringForHmdError( error ) );
+      return NULL;
+    }
+
+    // uint32_t unSize = compositor->GetLastError(NULL, 0);
+    // if (unSize > 1)
+    // {
+    //   char* buffer = new char[unSize];
+    //   compositor->GetLastError(buffer, unSize);
+    //   printf( "Compositor - %s\n", buffer );
+    //   delete [] buffer;
+    //   return NULL;
+    // }
+
+    return compositor;
+
+    }|]
+
+  return $ if compositorPtr == nullPtr then Nothing else Just (IVRCompositor compositorPtr)
+
+submitFrame (IVRCompositor compositorPtr) (fromIntegral -> framebufferTextureID) (fromIntegral -> width) (fromIntegral -> height) = do
+
+  [C.block|void {
+    vr::IVRCompositor* compositor = (vr::IVRCompositor *)$(void* compositorPtr);
+    compositor->Submit(vr::Eye_Left,  vr::API_OpenGL, (void*)$(unsigned int framebufferTextureID), NULL );
+    compositor->Submit(vr::Eye_Right, vr::API_OpenGL, (void*)$(unsigned int framebufferTextureID), NULL );
+  }|]
+
+waitGetPoses (IVRCompositor compositorPtr) = do
+
+  [C.block|void {
+
+    vr::TrackedDevicePose_t trackedDevicePoses[vr::k_unMaxTrackedDeviceCount];
+    vr::IVRCompositor* compositor = (vr::IVRCompositor *)$(void* compositorPtr);
+    compositor->WaitGetPoses(trackedDevicePoses, vr::k_unMaxTrackedDeviceCount, NULL, 0 );
+  }|]
