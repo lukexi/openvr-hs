@@ -34,6 +34,7 @@ main = do
       glEnable GL_DEPTH_TEST
       useProgram (sProgram cubeShape)
 
+      print =<< getEyeProjectionMatrix system LeftEye (0.1) (10000)
 
       mCompositor <- getCompositor
       case mCompositor of
@@ -52,6 +53,8 @@ main = do
             withFramebuffer framebuffer $ do
 
               waitGetPoses compositor
+
+              -- getEyeToHeadTransform system LeftEye
 
               glClear (GL_COLOR_BUFFER_BIT .|. GL_DEPTH_BUFFER_BIT)
               submitFrame compositor framebufferTexture w h
