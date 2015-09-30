@@ -10,6 +10,7 @@ import Control.Lens.Extra
 import Data.Maybe
 import Control.Monad
 import CubeUniforms
+import Halive.Utils
 
 data EyeInfo = EyeInfo
   { eiProjection :: M44 GLfloat
@@ -40,7 +41,7 @@ createOpenVR = do
 
       let halfWidth = fromIntegral $ w `div` 2
       eyes <- forM (zip [0..] [LeftEye, RightEye]) $ \(i, eye) -> do
-        eyeProj  <- getEyeProjectionMatrix system eye 0.01 100
+        eyeProj  <- getEyeProjectionMatrix system eye 0.1 100
         eyeTrans <- safeInv44 <$> getEyeToHeadTransform system eye
 
 
@@ -71,7 +72,7 @@ createOpenVR = do
 main :: IO ()
 main = do
 
-  (window, events) <- createWindow "OpenVR" 1024 768
+  (window, events) <- reacquire 0 $ createWindow "OpenVR" 1024 768
 
   cubeProg   <- createShaderProgram "app/cube.vert" "app/cube.frag"
   cubeGeo    <- cubeGeometry (0.1 :: V3 GLfloat) (V3 1 1 1)
@@ -97,31 +98,26 @@ openVRLoop window events cubeShape OpenVR{..} = do
 
   whileWindow window $ do
     
-
     now <- (/ 2) . (+ 1) . sin . realToFrac . utctDayTime <$> liftIO getCurrentTime
     glClearColor (now * 0.4) 1.0 0.3 1
     withFramebuffer ovrFramebuffer $ do
 
-      headPose <- waitGetPoses ovrCompositor ovrSystem
+      headPose <- safeInv44 <$> waitGetPoses ovrCompositor ovrSystem
       let _ = headPose :: M44 GLfloat
 
       glClear (GL_COLOR_BUFFER_BIT .|. GL_DEPTH_BUFFER_BIT)
 
-      info <- forM ovrEyes $ \EyeInfo{..} -> do
+      forM_ ovrEyes $ \EyeInfo{..} -> do
         let (x, y, w, h) = eiViewport
             finalView    = eiEyeHeadTrans !*! headPose
         glViewport x y w h
 
-        let info = eiViewport
         forM_ [(x,y,z) | x <- [-2..2], y <- [-2..2], z <- [-2..2] ] $ \(x,y,z) -> do
           let model = mkTransformation (axisAngle (V3 0 1 0) now) (V3 x y z)
 
           render cubeShape eiProjection finalView model
-        return info
 
-      processEvents events $ \e -> do
-        onKeyDown Key'Space e (print info)
-        (closeOnEscape window e)
+      processEvents events $ closeOnEscape window
 
       submitFrame ovrCompositor ovrFramebufferTexture (ovrRenderTargetSize ^. _x) (ovrRenderTargetSize ^. _y)
 

@@ -40,6 +40,7 @@ executable vr-pal
   main-is:             Main.hs
   ghc-options:         -O2 -Wall -threaded -rtsopts -with-rtsopts=-N
   build-depends:       base
+                     , halive
                      , vr-pal
                      , gl-pal
                      , glfw-pal
