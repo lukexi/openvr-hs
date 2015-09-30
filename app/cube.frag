@@ -35,5 +35,5 @@ void main() {
 
 
     fragColor = vec4(diffuseLit, uDiffuse.a);
-    //fragColor = vec4( vNormal * .5 + .5 , 1. ) * sin( uTime * 6.28);
+    fragColor = vec4( vNormal * .5 + .5 , 1. );// * sin( uTime * 6.28);
 }

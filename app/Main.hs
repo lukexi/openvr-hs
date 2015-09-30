@@ -13,7 +13,7 @@ import CubeUniforms
 
 data EyeInfo = EyeInfo
   { eiProjection :: M44 GLfloat
-  , eiHeadTrans  :: M44 GLfloat
+  , eiEyeHeadTrans  :: M44 GLfloat
   , eiViewport   :: (GLint, GLint, GLsizei, GLsizei)
   }
 
@@ -40,13 +40,14 @@ createOpenVR = do
 
       let halfWidth = fromIntegral $ w `div` 2
       eyes <- forM (zip [0..] [LeftEye, RightEye]) $ \(i, eye) -> do
-        eyeProj  <- getEyeProjectionMatrix system eye 0.1 1000
+        eyeProj  <- getEyeProjectionMatrix system eye 0.01 100
         eyeTrans <- safeInv44 <$> getEyeToHeadTransform system eye
+
 
         let x = fromIntegral $ i * halfWidth
         return EyeInfo
           { eiProjection = eyeProj
-          , eiHeadTrans = eyeTrans
+          , eiEyeHeadTrans = eyeTrans
           , eiViewport = (x, 0, x + halfWidth, fromIntegral h)
           }
 
@@ -73,7 +74,7 @@ main = do
   (window, events) <- createWindow "OpenVR" 1024 768
 
   cubeProg   <- createShaderProgram "app/cube.vert" "app/cube.frag"
-  cubeGeo    <- cubeGeometry (1 :: V3 GLfloat) (V3 1 1 1)
+  cubeGeo    <- cubeGeometry (0.1 :: V3 GLfloat) (V3 1 1 1)
   cubeShape  <- makeShape cubeGeo cubeProg
   let _ = cubeShape :: Shape Uniforms
 
@@ -81,39 +82,69 @@ main = do
   useProgram (sProgram cubeShape)
 
   mOpenVR <- createOpenVR
+  --let mOpenVR = Nothing
   
   case mOpenVR of 
     Just openVR -> openVRLoop window events cubeShape openVR
-    Nothing -> return ()
+    Nothing -> flatLoop window events cubeShape
   
       
   putStrLn "Done!"
 
 openVRLoop window events cubeShape OpenVR{..} = do
+  let zoom = 3 :: GLfloat
+      view = lookAt (V3 0 2 0) (V3 0 0 zoom) (V3 0 1 0)
+
+  whileWindow window $ do
+    
+
+    now <- (/ 2) . (+ 1) . sin . realToFrac . utctDayTime <$> liftIO getCurrentTime
+    glClearColor (now * 0.4) 1.0 0.3 1
+    withFramebuffer ovrFramebuffer $ do
+
+      headPose <- safeInv44 <$> waitGetPoses ovrCompositor ovrSystem
+      let _ = headPose :: M44 GLfloat
+
+      glClear (GL_COLOR_BUFFER_BIT .|. GL_DEPTH_BUFFER_BIT)
+
+      info <- forM ovrEyes $ \EyeInfo{..} -> do
+        let (x, y, w, h) = eiViewport
+            finalView    = eiEyeHeadTrans !*! headPose
+        glViewport x y w h
+
+        let info = eiViewport
+        forM_ [(x,y,z) | x <- [-2..2], y <- [-2..2], z <- [-2..2] ] $ \(x,y,z) -> do
+          let model = mkTransformation (axisAngle (V3 0 1 0) now) (V3 x y z)
+
+          render cubeShape eiProjection finalView model
+        return info
+
+      processEvents events $ \e -> do
+        onKeyDown Key'Space e (print info)
+        (closeOnEscape window e)
+
+      submitFrame ovrCompositor ovrFramebufferTexture (ovrRenderTargetSize ^. _x) (ovrRenderTargetSize ^. _y)
+
+    swapBuffers window
+
+
+flatLoop window events cubeShape = do
   let zoom = 3
       view = lookAt (V3 0 2 0) (V3 0 0 zoom) (V3 0 1 0)
+      projection = perspective 45 (1024/768) 0.1 1000
   whileWindow window $ do
     processEvents events (closeOnEscape window)
 
     now <- (/ 2) . (+ 1) . sin . realToFrac . utctDayTime <$> liftIO getCurrentTime
     glClearColor now 0.2 0.5 1
-    withFramebuffer ovrFramebuffer $ do
 
-      headPose <- safeInv44 <$> waitGetPoses ovrCompositor ovrSystem
-      -- liftIO.print $ "Viewport " ++ show headPose
-      let model = mkTransformation (axisAngle (V3 0 1 0) now) (V3 0 0 zoom)
+    let model = mkTransformation (axisAngle (V3 0 1 0) now) (V3 0 0 zoom)
 
-      glClear (GL_COLOR_BUFFER_BIT .|. GL_DEPTH_BUFFER_BIT)
+    glClear (GL_COLOR_BUFFER_BIT .|. GL_DEPTH_BUFFER_BIT)
 
-      forM_ ovrEyes $ \EyeInfo{..} -> do
-        let (x, y, w, h) = eiViewport
-            finalView  =  eiHeadTrans !*! headPose
-        glViewport x y w h
+    glViewport 0 0 1024 768
 
-        render cubeShape eiProjection finalView model
-
-      submitFrame ovrCompositor ovrFramebufferTexture (ovrRenderTargetSize ^. _x) (ovrRenderTargetSize ^. _y)
-
+    render cubeShape projection view model
 
     swapBuffers window
 
