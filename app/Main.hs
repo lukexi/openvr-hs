@@ -102,7 +102,7 @@ openVRLoop window events cubeShape OpenVR{..} = do
     glClearColor (now * 0.4) 1.0 0.3 1
     withFramebuffer ovrFramebuffer $ do
 
-      headPose <- safeInv44 <$> waitGetPoses ovrCompositor ovrSystem
+      headPose <- waitGetPoses ovrCompositor ovrSystem
       let _ = headPose :: M44 GLfloat
 
       glClear (GL_COLOR_BUFFER_BIT .|. GL_DEPTH_BUFFER_BIT)
