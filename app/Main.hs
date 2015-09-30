@@ -17,32 +17,31 @@ data EyeInfo = EyeInfo
   , eiViewport   :: (GLint, GLint, GLsizei, GLsizei)
   }
 
-main :: IO ()
-main = do
+
+data OpenVR = OpenVR
+  { ovrSystem :: IVRSystem
+  , ovrCompositor :: IVRCompositor
+  , ovrFramebuffer :: GLuint
+  , ovrFramebufferTexture :: GLuint
+  , ovrRenderTargetSize :: V2 GLint
+  , ovrEyes :: [EyeInfo]
+  }
+
+createOpenVR = do
   putStrLn "Starting OpenVR"
   mSystem <- initOpenVR
 
   case mSystem of
-    Nothing -> putStrLn "Couldn't create OpenVR system :*("
+    Nothing -> putStrLn "Couldn't create OpenVR system :*(" >> return Nothing
     Just system -> do
       putStrLn $ "Got system: " ++ show system
       (w,h) <- getRenderTargetSize system
       print (w,h)
 
-      (window, events) <- createWindow "OpenVR" 1024 768
-
-      cubeProg   <- createShaderProgram "app/cube.vert" "app/cube.frag"
-      cubeGeo    <- cubeGeometry (1 :: V3 GLfloat) (V3 1 1 1)
-      cubeShape  <- makeShape cubeGeo cubeProg
-      let _ = cubeShape :: Shape Uniforms
-
-      glEnable GL_DEPTH_TEST
-      useProgram (sProgram cubeShape)
-
       let halfWidth = fromIntegral $ w `div` 2
       eyes <- forM (zip [0..] [LeftEye, RightEye]) $ \(i, eye) -> do
-        eyeProj  <- getEyeProjectionMatrix system eye (0.1) (10000)
-        eyeTrans <- getEyeToHeadTransform system eye
+        eyeProj  <- getEyeProjectionMatrix system eye 0.1 1000
+        eyeTrans <- safeInv44 <$> getEyeToHeadTransform system eye
 
         let x = fromIntegral $ i * halfWidth
         return EyeInfo
@@ -51,46 +50,112 @@ main = do
           , eiViewport = (x, 0, x + halfWidth, fromIntegral h)
           }
 
-
-      let zoom         = 3
-          -- Look at the cube's position
-          view         = lookAt (V3 0 2 0) (V3 0 0 zoom) (V3 0 1 0)
-
       mCompositor <- getCompositor
       case mCompositor of
-        Nothing -> putStrLn "Couldn't create OpenVR compositor :*("
+        Nothing -> putStrLn "Couldn't create OpenVR compositor :*(" >> return Nothing
         Just compositor -> do
 
           (framebuffer, framebufferTexture) <- createFramebuffer (fromIntegral w) (fromIntegral h)
 
+          return . Just $ OpenVR
+            { ovrSystem = system
+            , ovrCompositor = compositor
+            , ovrRenderTargetSize = V2 w h
+            , ovrFramebuffer = framebuffer
+            , ovrFramebufferTexture = framebufferTexture
+            , ovrEyes = eyes
+            }
           
-          whileWindow window $ do
 
-            processEvents events (closeOnEscape window)
+main :: IO ()
+main = do
 
-            now <- (/ 2) . (+ 1) . sin . realToFrac . utctDayTime <$> liftIO getCurrentTime
-            glClearColor now 0.2 0.5 1
-            withFramebuffer framebuffer $ do
+  (window, events) <- createWindow "OpenVR" 1024 768
 
-              headPose <- safeInv44 <$> waitGetPoses compositor system
-              -- liftIO.print $ "Viewport " ++ show headPose
-              let model = mkTransformation (axisAngle (V3 0 1 0) now) (V3 0 0 zoom)
+  cubeProg   <- createShaderProgram "app/cube.vert" "app/cube.frag"
+  cubeGeo    <- cubeGeometry (1 :: V3 GLfloat) (V3 1 1 1)
+  cubeShape  <- makeShape cubeGeo cubeProg
+  let _ = cubeShape :: Shape Uniforms
 
-              glClear (GL_COLOR_BUFFER_BIT .|. GL_DEPTH_BUFFER_BIT)
+  glEnable GL_DEPTH_TEST
+  useProgram (sProgram cubeShape)
 
-              forM_ eyes $ \EyeInfo{..} -> do
-                let (x, y, w, h) = eiViewport
-                    finalView  = headPose !*! eiHeadTrans !*! view
-                glViewport x y w h
-
-                render cubeShape eiProjection finalView model
-
-              submitFrame compositor framebufferTexture w h
-
-
-            swapBuffers window
+  mOpenVR <- createOpenVR
+  
+  case mOpenVR of 
+    Just openVR -> openVRLoop window events cubeShape openVR
+    Nothing -> return ()
+  
       
   putStrLn "Done!"
+
+openVRLoop window events cubeShape OpenVR{..} = do
+  let zoom = 3
+      view = lookAt (V3 0 2 0) (V3 0 0 zoom) (V3 0 1 0)
+  whileWindow window $ do
+    processEvents events (closeOnEscape window)
+
+    now <- (/ 2) . (+ 1) . sin . realToFrac . utctDayTime <$> liftIO getCurrentTime
+    glClearColor now 0.2 0.5 1
+    withFramebuffer ovrFramebuffer $ do
+
+      headPose <- safeInv44 <$> waitGetPoses ovrCompositor ovrSystem
+      -- liftIO.print $ "Viewport " ++ show headPose
+      let model = mkTransformation (axisAngle (V3 0 1 0) now) (V3 0 0 zoom)
+
+      glClear (GL_COLOR_BUFFER_BIT .|. GL_DEPTH_BUFFER_BIT)
+
+      forM_ ovrEyes $ \EyeInfo{..} -> do
+        let (x, y, w, h) = eiViewport
+            finalView  =  eiHeadTrans !*! headPose
+        glViewport x y w h
+
+        render cubeShape eiProjection finalView model
+
+      submitFrame ovrCompositor ovrFramebufferTexture (ovrRenderTargetSize ^. _x) (ovrRenderTargetSize ^. _y)
+
+
+    swapBuffers window
+
+
+render :: (MonadIO m) 
+       => Shape Uniforms
+       -> M44 GLfloat
+       -> M44 GLfloat
+       -> M44 GLfloat
+       -> m ()
+render cubeShape projection viewMat model = do
+  let Uniforms{..} = sUniforms cubeShape
+      projectionView = projection !*! viewMat
+      -- We extract eyePos from the view matrix to get Oculus offsets baked in
+      eyePos = safeInv44 viewMat ^. translation
+
+  uniformV3 uCamera eyePos
+
+  withVAO (sVAO cubeShape) $ do
+    uniformV4 uDiffuse (V4 1 0.1 0.1 1)
+
+    drawShape model projectionView cubeShape
+
+drawShape :: MonadIO m => M44 GLfloat -> M44 GLfloat -> Shape Uniforms -> m ()
+drawShape model projectionView shape = do 
+
+  let Uniforms{..} = sUniforms shape
+
+  uniformM44 uModelViewProjection (projectionView !*! model)
+  uniformM44 uInverseModel        (fromMaybe model (inv44 model))
+  uniformM44 uModel               model
+
+  let vc = vertCount (sGeometry shape)
+  glDrawElements GL_TRIANGLES vc GL_UNSIGNED_INT nullPtr
+
+
+
+
+
+
+
+
 
 
 safeInv44 matrix = fromMaybe matrix (inv44 matrix)
@@ -145,35 +210,3 @@ createFramebuffer sizeX sizeY = do
   return (framebuffer, framebufferTexture)
 
 
-
-
-render :: (MonadIO m) 
-       => Shape Uniforms
-       -> M44 GLfloat
-       -> M44 GLfloat
-       -> M44 GLfloat
-       -> m ()
-render cubeShape projection viewMat model = do
-  let Uniforms{..} = sUniforms cubeShape
-      projectionView = projection !*! viewMat
-      -- We extract eyePos from the view matrix to get Oculus offsets baked in
-      eyePos = fromMaybe viewMat (inv44 viewMat) ^. translation
-
-  uniformV3 uCamera eyePos
-
-  withVAO (sVAO cubeShape) $ do
-    uniformV4 uDiffuse (V4 1 0.1 0.1 1)
-
-    drawShape model projectionView cubeShape
-
-drawShape :: MonadIO m => M44 GLfloat -> M44 GLfloat -> Shape Uniforms -> m ()
-drawShape model projectionView shape = do 
-
-  let Uniforms{..} = sUniforms shape
-
-  uniformM44 uModelViewProjection (projectionView !*! model)
-  uniformM44 uInverseModel        (fromMaybe model (inv44 model))
-  uniformM44 uModel               model
-
-  let vc = vertCount (sGeometry shape)
-  glDrawElements GL_TRIANGLES vc GL_UNSIGNED_INT nullPtr

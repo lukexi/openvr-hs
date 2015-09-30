@@ -96,13 +96,14 @@ initOpenVR = liftIO $ do
 
   return $ if systemPtr == 0 then Nothing else Just (IVRSystem systemPtr)
 
-getRenderTargetSize :: MonadIO m => IVRSystem -> m (Word32, Word32)
-getRenderTargetSize (IVRSystem systemPtr) = liftIO $
-  C.withPtrs_ $ \(xPtr, yPtr) -> 
+getRenderTargetSize :: Integral a => MonadIO m => IVRSystem -> m (a, a)
+getRenderTargetSize (IVRSystem systemPtr) = liftIO $ do
+  (w, h) <- C.withPtrs_ $ \(xPtr, yPtr) -> 
     [C.block| void {
       intptr_t system = $(intptr_t systemPtr);
       VR_IVRSystem_GetRecommendedRenderTargetSize(system, $(uint32_t* xPtr), $(uint32_t* yPtr));
     }|]
+  return (fromIntegral w, fromIntegral h)
 
 getCompositor :: MonadIO m => m (Maybe IVRCompositor) 
 getCompositor = liftIO $ do
@@ -182,24 +183,7 @@ getEyeToHeadTransform (IVRSystem systemPtr) eye = liftIO $ do
 
       HmdMatrix34_t transform = VR_IVRSystem_GetEyeToHeadTransform(system, eye);
 
-      float* out = $(float* ptr);
-      out[0]  = transform.m[0][0];
-      out[1]  = transform.m[1][0];
-      out[2]  = transform.m[2][0];
-      out[3]  = 0;
-      out[4]  = transform.m[0][1];
-      out[5]  = transform.m[1][1];
-      out[6]  = transform.m[2][1];
-      out[7]  = 0;
-      out[8]  = transform.m[0][2];
-      out[9]  = transform.m[1][2];
-      out[10] = transform.m[2][2];
-      out[11] = 0;
-      out[12] = transform.m[0][3];
-      out[13] = transform.m[1][3];
-      out[14] = transform.m[2][3];
-      out[15] = 1;
-
+      fillFromMatrix34(transform, $(float* ptr));
     }|]
   
 
@@ -216,21 +200,5 @@ getEyeProjectionMatrix (IVRSystem systemPtr) eye (realToFrac -> zNear) (realToFr
       HmdMatrix44_t projection = VR_IVRSystem_GetProjectionMatrix(system,
         eye, $(float zNear), $(float zFar), GraphicsAPIConvention_API_OpenGL);
 
-      float* out = $(float* ptr);
-      out[0]  = projection.m[0][0];
-      out[1]  = projection.m[1][0];
-      out[2]  = projection.m[2][0];
-      out[3]  = projection.m[3][0];
-      out[4]  = projection.m[0][1];
-      out[5]  = projection.m[1][1];
-      out[6]  = projection.m[2][1];
-      out[7]  = projection.m[3][1];
-      out[8]  = projection.m[0][2];
-      out[9]  = projection.m[1][2];
-      out[10] = projection.m[2][2];
-      out[11] = projection.m[3][2];
-      out[12] = projection.m[0][3];
-      out[13] = projection.m[1][3];
-      out[14] = projection.m[2][3];
-      out[15] = projection.m[3][3];
+      fillFromMatrix44(projection, $(float* ptr));
     }|]
