@@ -19,16 +19,21 @@ library
   build-depends:       base >= 4.7 && < 5
                      , inline-c >= 0.5.4.3
                      , inline-c-cpp
+                     , linear-extra
                      , mtl
+                     , raw-strings-qq
   default-language:    Haskell2010
   include-dirs:        openvr/headers
   c-sources:           src/Graphics/VR/OpenVR.cpp
   extra-libraries:     openvr_api
   ghc-options:         -Wall -O2
   ghc-prof-options:    -Wall -O2 -fprof-auto
-  cc-options: -O2 -std=c++0x
+  cc-options: -O2
   if os(windows)
-    extra-lib-dirs: c:\msys64\usr\local\bin
+    extra-libraries:   libstdc++-6
+    extra-lib-dirs:    c:\msys64\usr\local\bin 
+                       C:\msys64\usr\local\ghc\mingw\bin
+    cc-options:        -fno-exceptions
 
 executable vr-pal
   hs-source-dirs:      app

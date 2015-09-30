@@ -9,8 +9,13 @@ import Control.Monad.Trans
 import Control.Lens.Extra
 import Data.Maybe
 import Control.Monad
-
 import CubeUniforms
+
+data EyeInfo = EyeInfo
+  { eiProjection :: M44 GLfloat
+  , eiHeadTrans  :: M44 GLfloat
+  , eiViewport   :: (GLint, GLint, GLsizei, GLsizei)
+  }
 
 main :: IO ()
 main = do
@@ -34,7 +39,22 @@ main = do
       glEnable GL_DEPTH_TEST
       useProgram (sProgram cubeShape)
 
-      print =<< getEyeProjectionMatrix system LeftEye (0.1) (10000)
+      let halfWidth = fromIntegral $ w `div` 2
+      eyes <- forM (zip [0..] [LeftEye, RightEye]) $ \(i, eye) -> do
+        eyeProj  <- getEyeProjectionMatrix system eye (0.1) (10000)
+        eyeTrans <- getEyeToHeadTransform system eye
+
+        let x = fromIntegral $ i * halfWidth
+        return EyeInfo
+          { eiProjection = eyeProj
+          , eiHeadTrans = eyeTrans
+          , eiViewport = (x, 0, x + halfWidth, fromIntegral h)
+          }
+
+
+      let zoom         = 3
+          -- Look at the cube's position
+          view         = lookAt (V3 0 2 0) (V3 0 0 zoom) (V3 0 1 0)
 
       mCompositor <- getCompositor
       case mCompositor of
@@ -52,11 +72,19 @@ main = do
             glClearColor now 0.2 0.5 1
             withFramebuffer framebuffer $ do
 
-              waitGetPoses compositor
-
-              -- getEyeToHeadTransform system LeftEye
+              headPose <- safeInv44 <$> waitGetPoses compositor system
+              -- liftIO.print $ "Viewport " ++ show headPose
+              let model = mkTransformation (axisAngle (V3 0 1 0) now) (V3 0 0 zoom)
 
               glClear (GL_COLOR_BUFFER_BIT .|. GL_DEPTH_BUFFER_BIT)
+
+              forM_ eyes $ \EyeInfo{..} -> do
+                let (x, y, w, h) = eiViewport
+                    finalView  = headPose !*! eiHeadTrans !*! view
+                glViewport x y w h
+
+                render cubeShape eiProjection finalView model
+
               submitFrame compositor framebufferTexture w h
 
 
@@ -65,9 +93,12 @@ main = do
   putStrLn "Done!"
 
 
+safeInv44 matrix = fromMaybe matrix (inv44 matrix)
+
+withFramebuffer :: MonadIO m => GLuint -> m a -> m ()
 withFramebuffer framebuffer action = do
   glBindFramebuffer GL_FRAMEBUFFER framebuffer
-  action
+  _ <- action
   glBindFramebuffer GL_FRAMEBUFFER 0
 
 
@@ -120,8 +151,9 @@ render :: (MonadIO m)
        => Shape Uniforms
        -> M44 GLfloat
        -> M44 GLfloat
+       -> M44 GLfloat
        -> m ()
-render cubeShape projection viewMat = do
+render cubeShape projection viewMat model = do
   let Uniforms{..} = sUniforms cubeShape
       projectionView = projection !*! viewMat
       -- We extract eyePos from the view matrix to get Oculus offsets baked in
@@ -131,8 +163,6 @@ render cubeShape projection viewMat = do
 
   withVAO (sVAO cubeShape) $ do
     uniformV4 uDiffuse (V4 1 0.1 0.1 1)
-
-    let model = mkTransformation (newPose ^. posOrientation) (newPose ^. posPosition)
 
     drawShape model projectionView cubeShape
 
