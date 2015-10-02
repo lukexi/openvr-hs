@@ -24,17 +24,18 @@ cubes = [cubeAt x y z | x <- [-2..2], y <- [-2..2], z <- [-2..2] ]
       where color = V4 ((y + 2) / 4) 0.4 ((x+2)/4) 1 -- increase redness as y goes up, blueness as x goes up
 
 data EyeInfo = EyeInfo
-  { eiProjection :: M44 GLfloat
+  { eiEye :: HmdEye
+  , eiProjection :: M44 GLfloat
   , eiEyeHeadTrans  :: M44 GLfloat
   , eiViewport   :: (GLint, GLint, GLsizei, GLsizei)
+  , eiFramebuffer :: GLuint
+  , eiFramebufferTexture :: GLuint
   }
 
 
 data OpenVR = OpenVR
   { ovrSystem :: IVRSystem
   , ovrCompositor :: IVRCompositor
-  , ovrFramebuffer :: GLuint
-  , ovrFramebufferTexture :: GLuint
   , ovrEyes :: [EyeInfo]
   }
 
@@ -75,63 +76,60 @@ createOpenVR = do
         eyeProj  <- getEyeProjectionMatrix system eye 0.1 100
         eyeTrans <- safeInv44 <$> getEyeToHeadTransform system eye
 
-        -- (x,y,w,h) <- getEyeViewport system eye
-        -- print eyeProj
+        (framebuffer, framebufferTexture) <- createFramebuffer (fromIntegral w) (fromIntegral h)
 
-
-        let x = fromIntegral $ i * w
         return EyeInfo
-          { eiProjection = eyeProj
+          { eiEye = eye
+          , eiProjection = eyeProj
           , eiEyeHeadTrans = eyeTrans
-          , eiViewport = (x, 0, x + w, fromIntegral h)
-          -- , eiViewport = (x,y,w,h)
+          , eiViewport = (0, 0, w, h)
+          , eiFramebuffer = framebuffer
+          , eiFramebufferTexture = framebufferTexture
           }
 
       mCompositor <- getCompositor
       case mCompositor of
         Nothing -> putStrLn "Couldn't create OpenVR compositor :*(" >> return Nothing
         Just compositor -> do
-
-          (framebuffer, framebufferTexture) <- createFramebuffer (fromIntegral w * 2) (fromIntegral h)
-
           return . Just $ OpenVR
             { ovrSystem = system
             , ovrCompositor = compositor
-            , ovrFramebuffer = framebuffer
-            , ovrFramebufferTexture = framebufferTexture
             , ovrEyes = eyes
             }
 
 
 
-openVRLoop window events cubeShape OpenVR{..} = do
-
-  whileWindow window $ do
+openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
     
 
-    now <- (/ 2) . (+ 1) . sin . realToFrac . utctDayTime <$> liftIO getCurrentTime
-    glClearColor (now * 0.4) 1.0 0 1
-    withFramebuffer ovrFramebuffer $ do
+  now <- (/ 2) . (+ 1) . sin . realToFrac . utctDayTime <$> liftIO getCurrentTime
+  glClearColor (now * 0.4) 1.0 0 1
+  
 
-      headPose <- safeInv44 <$> waitGetPoses ovrCompositor ovrSystem
-      let _ = headPose :: M44 GLfloat
-      -- putStrLn $ "Head pose: " ++ show (headPose ^. translation)
+  headPose <- safeInv44 <$> waitGetPoses ovrCompositor ovrSystem
+  let _ = headPose :: M44 GLfloat
+  -- putStrLn $ "Head pose: " ++ show (headPose ^. translation)
 
+  
+
+  forM_ ovrEyes $ \EyeInfo{..} -> do
+
+    withFramebuffer eiFramebuffer $ do
       glClear (GL_COLOR_BUFFER_BIT .|. GL_DEPTH_BUFFER_BIT)
+      let (x, y, w, h) = eiViewport
+          finalView    = eiEyeHeadTrans !*! headPose
+          -- finalView    = headPose !*! eiEyeHeadTrans
+      glViewport x y w h             
 
-      forM_ ovrEyes $ \EyeInfo{..} -> do
-        let (x, y, w, h) = eiViewport
-            finalView    = eiEyeHeadTrans !*! headPose
-            -- finalView    = headPose !*! eiEyeHeadTrans
-        glViewport x y w h             
+      render cubeShape eiProjection finalView cubes
 
-        render cubeShape eiProjection finalView cubes
+      submitFrameForEye ovrCompositor eiEye eiFramebufferTexture
 
-      processEvents events $ closeOnEscape window
+  processEvents events $ closeOnEscape window
 
-      submitFrame ovrCompositor ovrFramebufferTexture
+  
 
-    swapBuffers window
+  swapBuffers window
 
 
 flatLoop window events cubeShape = do
@@ -183,4 +181,6 @@ drawShape model projectionView shape = do
 
   let vc = vertCount (sGeometry shape)
   glDrawElements GL_TRIANGLES vc GL_UNSIGNED_INT nullPtr
+
+
 

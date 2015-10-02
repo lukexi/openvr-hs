@@ -84,6 +84,8 @@ void fillFromMatrix34(HmdMatrix34_t matrix, float* out) {
 }
 |]
 
+-- | Creates the OpenVR System object, which is the main point of interface with OpenVR.
+-- Will return Nothing if no headset can be found, or if some other error occurs during initialization.
 initOpenVR :: MonadIO m => m (Maybe IVRSystem)
 initOpenVR = liftIO $ do
   systemPtr <- [C.block| intptr_t {
@@ -103,6 +105,7 @@ initOpenVR = liftIO $ do
 
   return $ if systemPtr == 0 then Nothing else Just (IVRSystem systemPtr)
 
+-- | Gets a reference to the OpenVR Compositor, which is used to submit frames to the headset.
 getCompositor :: MonadIO m => m (Maybe IVRCompositor) 
 getCompositor = liftIO $ do
   compositorPtr <- [C.block| intptr_t {
@@ -130,11 +133,12 @@ getCompositor = liftIO $ do
     return compositor;
 
     }|]
-    
+
   return $ if compositorPtr == 0 then Nothing else Just (IVRCompositor compositorPtr)
 
 
-
+-- | Returns the size of the framebuffer you should render to for one eye.
+-- Double the width if using a single framebuffer for both eyes.
 getRenderTargetSize :: Integral a => MonadIO m => IVRSystem -> m (a, a)
 getRenderTargetSize (IVRSystem systemPtr) = liftIO $ do
   (w, h) <- C.withPtrs_ $ \(wPtr, hPtr) -> 
@@ -146,7 +150,8 @@ getRenderTargetSize (IVRSystem systemPtr) = liftIO $ do
 
 
 
--- | NOTE this doesn't seem to return the correct values for the Oculus 
+-- | Returns the viewport to give to glViewport when rendering the given eye.
+-- NOTE this doesn't seem to return the correct values for the Oculus 
 -- (it returns 1080p rather than the upscaled values for the render buffer)
 getEyeViewport :: Integral a => MonadIO m => IVRSystem -> HmdEye -> m (a, a, a, a)
 getEyeViewport (IVRSystem systemPtr) eye = liftIO $ do
@@ -162,24 +167,7 @@ getEyeViewport (IVRSystem systemPtr) eye = liftIO $ do
   return (fromIntegral x, fromIntegral y, fromIntegral w, fromIntegral h)
 
 
-
-
-getEyeToHeadTransform :: (Fractional a, MonadIO m) => IVRSystem -> HmdEye -> m (M44 a)
-getEyeToHeadTransform (IVRSystem systemPtr) eye = liftIO $ do
-  let eyeNum = fromIntegral $ fromEnum eye
-  buildM44WithPtr $ \ptr ->
-    [C.block|void {
-      intptr_t system = $(intptr_t systemPtr);
-
-      Hmd_Eye eye = $(int eyeNum) == 0 ? Hmd_Eye_Eye_Left : Hmd_Eye_Eye_Right;
-
-      HmdMatrix34_t transform = VR_IVRSystem_GetEyeToHeadTransform(system, eye);
-
-      fillFromMatrix34(transform, $(float* ptr));
-    }|]
-  
-
-
+-- | Returns the projection matrix for the given eye for the given near and far clipping planes.
 getEyeProjectionMatrix :: (Fractional a, MonadIO m) => IVRSystem -> HmdEye -> Float -> Float -> m (M44 a)
 getEyeProjectionMatrix (IVRSystem systemPtr) eye (realToFrac -> zNear) (realToFrac -> zFar) = liftIO $ do
   let eyeNum = fromIntegral $ fromEnum eye
@@ -196,7 +184,25 @@ getEyeProjectionMatrix (IVRSystem systemPtr) eye (realToFrac -> zNear) (realToFr
     }|]
 
 
-waitGetPoses (IVRCompositor compositorPtr) (IVRSystem systemPtr) = do
+-- | Returns the offset of each eye from the head pose.
+getEyeToHeadTransform :: (Fractional a, MonadIO m) => IVRSystem -> HmdEye -> m (M44 a)
+getEyeToHeadTransform (IVRSystem systemPtr) eye = liftIO $ do
+  let eyeNum = fromIntegral $ fromEnum eye
+  buildM44WithPtr $ \ptr ->
+    [C.block|void {
+      intptr_t system = $(intptr_t systemPtr);
+
+      Hmd_Eye eye = $(int eyeNum) == 0 ? Hmd_Eye_Eye_Left : Hmd_Eye_Eye_Right;
+
+      HmdMatrix34_t transform = VR_IVRSystem_GetEyeToHeadTransform(system, eye);
+
+      fillFromMatrix34(transform, $(float* ptr));
+    }|]
+  
+
+
+waitGetPoses :: (Fractional a, MonadIO m) => IVRCompositor -> IVRSystem -> m (M44 a)
+waitGetPoses (IVRCompositor compositorPtr) (IVRSystem systemPtr) = liftIO $ do
   buildM44WithPtr $ \ptr ->
     [C.block|void {
       intptr_t compositor = $(intptr_t compositorPtr);
@@ -215,8 +221,13 @@ waitGetPoses (IVRCompositor compositorPtr) (IVRSystem systemPtr) = do
       }
     }|]
 
-
-submitFrame (IVRCompositor compositorPtr) (fromIntegral -> framebufferTextureID) = do
+-- | Submits a frame for each eye using the given textureID as a source,
+-- where the texture is expected to be double the width of getRenderTargetSize 
+-- and contain the images for both eyes side by size
+-- NOTE: I haven't been able to get this method to work!!
+-- Use submitFrameForEye and two framebuffers.
+submitFrame :: (Integral a, MonadIO m) => IVRCompositor -> a -> m ()
+submitFrame (IVRCompositor compositorPtr) (fromIntegral -> framebufferTextureID) = liftIO $ do
 
   [C.block|void {
     intptr_t compositor = $(intptr_t compositorPtr);
@@ -225,11 +236,20 @@ submitFrame (IVRCompositor compositorPtr) (fromIntegral -> framebufferTextureID)
     VRTextureBounds_t leftBounds  = {0,   0,   0.5, 1};
     VRTextureBounds_t rightBounds = {0.5, 0,   1,   1};
 
-    //                               xMin yMin xMax yMax
-    //VRTextureBounds_t leftBounds  = {0,   1,   0.5, 0};
-    //VRTextureBounds_t rightBounds = {0.5, 1,   1,   0};
     VR_IVRCompositor_Submit(compositor, Hmd_Eye_Eye_Left,  GraphicsAPIConvention_API_OpenGL, 
       (void*)$(unsigned int framebufferTextureID), &leftBounds, VRSubmitFlags_t_Submit_Default);
     VR_IVRCompositor_Submit(compositor, Hmd_Eye_Eye_Right, GraphicsAPIConvention_API_OpenGL, 
       (void*)$(unsigned int framebufferTextureID), &rightBounds, VRSubmitFlags_t_Submit_Default);
+  }|]
+
+-- | Submits a frame for the given eye
+submitFrameForEye :: (Integral a, MonadIO m) => IVRCompositor -> HmdEye -> a -> m ()
+submitFrameForEye (IVRCompositor compositorPtr) eye (fromIntegral -> framebufferTextureID) = liftIO $ do
+  let eyeNum = fromIntegral $ fromEnum eye
+  [C.block|void {
+    intptr_t compositor = $(intptr_t compositorPtr);
+    Hmd_Eye eye = $(int eyeNum) == 0 ? Hmd_Eye_Eye_Left : Hmd_Eye_Eye_Right;
+
+    VR_IVRCompositor_Submit(compositor, eye,  GraphicsAPIConvention_API_OpenGL, 
+      (void*)$(unsigned int framebufferTextureID), NULL, VRSubmitFlags_t_Submit_Default);
   }|]
