@@ -13,6 +13,7 @@ import Control.Monad.Trans
 import Data.Monoid
 import Linear.Extra
 import Text.RawString.QQ (r)
+import Debug.Trace
 
 -- Set up inline-c to gain Cpp and Function Pointer abilities
 C.context (C.cppCtx <> C.funCtx)
@@ -22,6 +23,8 @@ C.include "stdio.h"
 
 newtype IVRSystem     = IVRSystem     { unIVRSystem     :: CIntPtr } deriving Show
 newtype IVRCompositor = IVRCompositor { unIVRCompositor :: CIntPtr } deriving Show
+
+data HmdEye = LeftEye | RightEye deriving (Enum)
 
 -- | Temporarily allocate an array of the given size, 
 -- pass it to a foreign function, then peek it before it is discarded
@@ -53,25 +56,11 @@ void fillFromMatrix44(HmdMatrix44_t matrix, float* out) {
   out[14] = matrix.m[2][3];
   out[15] = matrix.m[3][3];
   
-
-  /*
-  out[0]  = matrix.m[0][0];
-  out[1]  = matrix.m[0][1];
-  out[2]  = matrix.m[0][2];
-  out[3]  = matrix.m[0][3];
-  out[4]  = matrix.m[1][0];
-  out[5]  = matrix.m[1][1];
-  out[6]  = matrix.m[1][2];
-  out[7]  = matrix.m[1][3];
-  out[8]  = matrix.m[2][0];
-  out[9]  = matrix.m[2][1];
-  out[10] = matrix.m[2][2];
-  out[11] = matrix.m[2][3];
-  out[12] = matrix.m[3][0];
-  out[13] = matrix.m[3][1];
-  out[14] = matrix.m[3][2];
-  out[15] = matrix.m[3][3];
-  */
+  printf("C++: %f %f %f %f %f %f %f %f %f %f %f %f %f %f %f %f\n", 
+    out[0],out[1],out[2],out[3],
+    out[4],out[5],out[6],out[7],
+    out[8],out[9],out[10],out[11],
+    out[12],out[13],out[14],out[15]);
 }
 
 void fillFromMatrix34(HmdMatrix34_t matrix, float* out) {
@@ -92,24 +81,6 @@ void fillFromMatrix34(HmdMatrix34_t matrix, float* out) {
   out[13] = matrix.m[1][3];
   out[14] = matrix.m[2][3];
   out[15] = 1;
-  /*
-  out[0]  = matrix.m[0][0];
-  out[1]  = matrix.m[0][1];
-  out[2]  = matrix.m[0][2];
-  out[3]  = 0;
-  out[4]  = matrix.m[1][0];
-  out[5]  = matrix.m[1][1];
-  out[6]  = matrix.m[1][2];
-  out[7]  = 0;
-  out[8]  = matrix.m[2][0];
-  out[9]  = matrix.m[2][1];
-  out[10] = matrix.m[2][2];
-  out[11] = 0;
-  out[12] = matrix.m[3][0];
-  out[13] = matrix.m[3][1];
-  out[14] = matrix.m[3][2];
-  out[15] = 1;
-  */
 }
 |]
 
@@ -132,15 +103,6 @@ initOpenVR = liftIO $ do
 
   return $ if systemPtr == 0 then Nothing else Just (IVRSystem systemPtr)
 
-getRenderTargetSize :: Integral a => MonadIO m => IVRSystem -> m (a, a)
-getRenderTargetSize (IVRSystem systemPtr) = liftIO $ do
-  (w, h) <- C.withPtrs_ $ \(xPtr, yPtr) -> 
-    [C.block| void {
-      intptr_t system = $(intptr_t systemPtr);
-      VR_IVRSystem_GetRecommendedRenderTargetSize(system, $(uint32_t* xPtr), $(uint32_t* yPtr));
-    }|]
-  return (fromIntegral w, fromIntegral h)
-
 getCompositor :: MonadIO m => m (Maybe IVRCompositor) 
 getCompositor = liftIO $ do
   compositorPtr <- [C.block| intptr_t {
@@ -156,57 +118,51 @@ getCompositor = liftIO $ do
       return 0;
     }
 
-    // uint32_t unSize = compositor->GetLastError(NULL, 0);
-    // if (unSize > 1)
-    // {
-    //   char* buffer = new char[unSize];
-    //   compositor->GetLastError(buffer, unSize);
-    //   printf( "Compositor - %s\n", buffer );
-    //   delete [] buffer;
-    //   return 0;
-    // }
+    uint32_t unSize = VR_IVRCompositor_GetLastError(compositor, NULL, 0);
+    if (unSize > 1)
+    {
+      char buffer[unSize];
+      VR_IVRCompositor_GetLastError(compositor, buffer, unSize);
+      printf( "Compositor - %s\n", buffer );
+      return 0;
+    }
 
     return compositor;
 
     }|]
-
+    
   return $ if compositorPtr == 0 then Nothing else Just (IVRCompositor compositorPtr)
 
-submitFrame (IVRCompositor compositorPtr) (fromIntegral -> framebufferTextureID) (fromIntegral -> width) (fromIntegral -> height) = do
 
-  [C.block|void {
-    intptr_t compositor = $(intptr_t compositorPtr);
-    float width = $(float width);
-    float height = $(float height);
-    float halfWidth = width / 2;
-    VRTextureBounds_t leftBounds = {0, 0, 0.5, 1};
-    VRTextureBounds_t rightBounds = {0.5, 0, 1, 1};
-    VR_IVRCompositor_Submit(compositor, Hmd_Eye_Eye_Left,  GraphicsAPIConvention_API_OpenGL, 
-      (void*)$(unsigned int framebufferTextureID), &leftBounds, VRSubmitFlags_t_Submit_Default);
-    VR_IVRCompositor_Submit(compositor, Hmd_Eye_Eye_Right, GraphicsAPIConvention_API_OpenGL, 
-      (void*)$(unsigned int framebufferTextureID), &rightBounds, VRSubmitFlags_t_Submit_Default);
-  }|]
 
-waitGetPoses (IVRCompositor compositorPtr) (IVRSystem systemPtr) = do
-  buildM44WithPtr $ \ptr ->
-    [C.block|void {
-      intptr_t compositor = $(intptr_t compositorPtr);
-      TrackedDevicePose_t trackedDevicePoses[k_unMaxTrackedDeviceCount];
-      VR_IVRCompositor_WaitGetPoses(compositor, trackedDevicePoses, k_unMaxTrackedDeviceCount, NULL, 0);
-
+getRenderTargetSize :: Integral a => MonadIO m => IVRSystem -> m (a, a)
+getRenderTargetSize (IVRSystem systemPtr) = liftIO $ do
+  (w, h) <- C.withPtrs_ $ \(wPtr, hPtr) -> 
+    [C.block| void {
       intptr_t system = $(intptr_t systemPtr);
-      for (int nDevice = 0; nDevice < k_unMaxTrackedDeviceCount; nDevice++) {
-        TrackedDevicePose_t pose = trackedDevicePoses[nDevice];
-        TrackedDeviceClass deviceClass = VR_IVRSystem_GetTrackedDeviceClass(system, nDevice);
-
-        if (pose.bPoseIsValid && deviceClass == TrackedDeviceClass_HMD) {
-          fillFromMatrix34(pose.mDeviceToAbsoluteTracking, $(float* ptr));
-        }
-      }
+      VR_IVRSystem_GetRecommendedRenderTargetSize(system, $(uint32_t* wPtr), $(uint32_t* hPtr));
     }|]
+  return (fromIntegral w, fromIntegral h)
 
 
-data HmdEye = LeftEye | RightEye deriving (Enum)
+
+-- | NOTE this doesn't seem to return the correct values for the Oculus 
+-- (it returns 1080p rather than the upscaled values for the render buffer)
+getEyeViewport :: Integral a => MonadIO m => IVRSystem -> HmdEye -> m (a, a, a, a)
+getEyeViewport (IVRSystem systemPtr) eye = liftIO $ do
+  let eyeNum = fromIntegral $ fromEnum eye
+  (x, y, w, h) <- C.withPtrs_ $ \(xPtr, yPtr, wPtr, hPtr) -> 
+    [C.block| void {
+      intptr_t system = $(intptr_t systemPtr);
+      Hmd_Eye eye = $(int eyeNum) == 0 ? Hmd_Eye_Eye_Left : Hmd_Eye_Eye_Right;
+
+      VR_IVRSystem_GetEyeOutputViewport(system, eye, 
+        $(uint32_t* xPtr), $(uint32_t* yPtr), $(uint32_t* wPtr), $(uint32_t* hPtr));
+    }|]
+  return (fromIntegral x, fromIntegral y, fromIntegral w, fromIntegral h)
+
+
+
 
 getEyeToHeadTransform :: (Fractional a, MonadIO m) => IVRSystem -> HmdEye -> m (M44 a)
 getEyeToHeadTransform (IVRSystem systemPtr) eye = liftIO $ do
@@ -233,8 +189,47 @@ getEyeProjectionMatrix (IVRSystem systemPtr) eye (realToFrac -> zNear) (realToFr
 
       Hmd_Eye eye = $(int eyeNum) == 0 ? Hmd_Eye_Eye_Left : Hmd_Eye_Eye_Right;
 
-      HmdMatrix44_t projection = VR_IVRSystem_GetProjectionMatrix(system,
-        eye, $(float zNear), $(float zFar), GraphicsAPIConvention_API_OpenGL);
+      HmdMatrix44_t projection = VR_IVRSystem_GetProjectionMatrix(system, eye, 
+        $(float zNear), $(float zFar), GraphicsAPIConvention_API_OpenGL);
 
       fillFromMatrix44(projection, $(float* ptr));
     }|]
+
+
+waitGetPoses (IVRCompositor compositorPtr) (IVRSystem systemPtr) = do
+  buildM44WithPtr $ \ptr ->
+    [C.block|void {
+      intptr_t compositor = $(intptr_t compositorPtr);
+      TrackedDevicePose_t trackedDevicePoses[k_unMaxTrackedDeviceCount];
+      VR_IVRCompositor_WaitGetPoses(compositor, trackedDevicePoses, k_unMaxTrackedDeviceCount, NULL, 0);
+
+      intptr_t system = $(intptr_t systemPtr);
+      for (int nDevice = 0; nDevice < k_unMaxTrackedDeviceCount; nDevice++) {
+        TrackedDevicePose_t pose = trackedDevicePoses[nDevice];
+        TrackedDeviceClass deviceClass = VR_IVRSystem_GetTrackedDeviceClass(system, nDevice);
+
+        if (pose.bPoseIsValid && deviceClass == TrackedDeviceClass_HMD) {
+          HmdMatrix34_t transform = pose.mDeviceToAbsoluteTracking;
+          fillFromMatrix34(transform, $(float* ptr));
+        }
+      }
+    }|]
+
+
+submitFrame (IVRCompositor compositorPtr) (fromIntegral -> framebufferTextureID) = do
+
+  [C.block|void {
+    intptr_t compositor = $(intptr_t compositorPtr);
+
+    //                               xMin yMin xMax yMax
+    VRTextureBounds_t leftBounds  = {0,   0,   0.5, 1};
+    VRTextureBounds_t rightBounds = {0.5, 0,   1,   1};
+
+    //                               xMin yMin xMax yMax
+    //VRTextureBounds_t leftBounds  = {0,   1,   0.5, 0};
+    //VRTextureBounds_t rightBounds = {0.5, 1,   1,   0};
+    VR_IVRCompositor_Submit(compositor, Hmd_Eye_Eye_Left,  GraphicsAPIConvention_API_OpenGL, 
+      (void*)$(unsigned int framebufferTextureID), &leftBounds, VRSubmitFlags_t_Submit_Default);
+    VR_IVRCompositor_Submit(compositor, Hmd_Eye_Eye_Right, GraphicsAPIConvention_API_OpenGL, 
+      (void*)$(unsigned int framebufferTextureID), &rightBounds, VRSubmitFlags_t_Submit_Default);
+  }|]

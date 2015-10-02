@@ -24,50 +24,8 @@ data OpenVR = OpenVR
   , ovrCompositor :: IVRCompositor
   , ovrFramebuffer :: GLuint
   , ovrFramebufferTexture :: GLuint
-  , ovrRenderTargetSize :: V2 GLint
   , ovrEyes :: [EyeInfo]
   }
-
-createOpenVR = do
-  putStrLn "Starting OpenVR"
-  mSystem <- initOpenVR
-
-  case mSystem of
-    Nothing -> putStrLn "Couldn't create OpenVR system :*(" >> return Nothing
-    Just system -> do
-      putStrLn $ "Got system: " ++ show system
-      (w,h) <- getRenderTargetSize system
-      print (w,h)
-
-      let halfWidth = fromIntegral $ w `div` 2
-      eyes <- forM (zip [0..] [LeftEye, RightEye]) $ \(i, eye) -> do
-        eyeProj  <- getEyeProjectionMatrix system eye 0.1 100
-        eyeTrans <- safeInv44 <$> getEyeToHeadTransform system eye
-
-
-        let x = fromIntegral $ i * halfWidth
-        return EyeInfo
-          { eiProjection = eyeProj
-          , eiEyeHeadTrans = eyeTrans
-          , eiViewport = (x, 0, x + halfWidth, fromIntegral h)
-          }
-
-      mCompositor <- getCompositor
-      case mCompositor of
-        Nothing -> putStrLn "Couldn't create OpenVR compositor :*(" >> return Nothing
-        Just compositor -> do
-
-          (framebuffer, framebufferTexture) <- createFramebuffer (fromIntegral w) (fromIntegral h)
-
-          return . Just $ OpenVR
-            { ovrSystem = system
-            , ovrCompositor = compositor
-            , ovrRenderTargetSize = V2 w h
-            , ovrFramebuffer = framebuffer
-            , ovrFramebufferTexture = framebufferTexture
-            , ovrEyes = eyes
-            }
-          
 
 main :: IO ()
 main = do
@@ -83,7 +41,7 @@ main = do
   useProgram (sProgram cubeShape)
 
   mOpenVR <- createOpenVR
-  --let mOpenVR = Nothing
+  -- let mOpenVR = Nothing
   
   case mOpenVR of 
     Just openVR -> openVRLoop window events cubeShape openVR
@@ -92,34 +50,81 @@ main = do
       
   putStrLn "Done!"
 
+createOpenVR = do
+  putStrLn "Starting OpenVR"
+  mSystem <- reacquire 1 $ initOpenVR
+
+  case mSystem of
+    Nothing -> putStrLn "Couldn't create OpenVR system :*(" >> return Nothing
+    Just system -> do
+      putStrLn $ "Got system: " ++ show system
+      (w,h) <- getRenderTargetSize system
+      print (w,h)
+      eyes <- forM (zip [0..] [LeftEye, RightEye]) $ \(i, eye) -> do
+        eyeProj  <- getEyeProjectionMatrix system eye 0.1 100
+        eyeTrans <- safeInv44 <$> getEyeToHeadTransform system eye
+        print eyeTrans
+        print (view translation . safeInv44 $ eyeTrans)
+        -- (x,y,w,h) <- getEyeViewport system eye
+        -- print eyeProj
+
+
+        let x = fromIntegral $ i * w
+        return EyeInfo
+          { eiProjection = eyeProj
+          , eiEyeHeadTrans = eyeTrans
+          , eiViewport = (x, 0, x + w, fromIntegral h)
+          -- , eiViewport = (x,y,w,h)
+          }
+
+      mCompositor <- getCompositor
+      case mCompositor of
+        Nothing -> putStrLn "Couldn't create OpenVR compositor :*(" >> return Nothing
+        Just compositor -> do
+
+          (framebuffer, framebufferTexture) <- createFramebuffer (fromIntegral w * 2) (fromIntegral h)
+
+          return . Just $ OpenVR
+            { ovrSystem = system
+            , ovrCompositor = compositor
+            , ovrFramebuffer = framebuffer
+            , ovrFramebufferTexture = framebufferTexture
+            , ovrEyes = eyes
+            }
+
+
 openVRLoop window events cubeShape OpenVR{..} = do
-  let zoom = 3 :: GLfloat
-      view = lookAt (V3 0 2 0) (V3 0 0 zoom) (V3 0 1 0)
 
   whileWindow window $ do
     
+
     now <- (/ 2) . (+ 1) . sin . realToFrac . utctDayTime <$> liftIO getCurrentTime
-    glClearColor (now * 0.4) 1.0 0.3 1
+    glClearColor (now * 0.4) 1.0 0 1
     withFramebuffer ovrFramebuffer $ do
 
       headPose <- safeInv44 <$> waitGetPoses ovrCompositor ovrSystem
       let _ = headPose :: M44 GLfloat
+      -- putStrLn $ "Head pose: " ++ show (headPose ^. translation)
 
       glClear (GL_COLOR_BUFFER_BIT .|. GL_DEPTH_BUFFER_BIT)
 
       forM_ ovrEyes $ \EyeInfo{..} -> do
         let (x, y, w, h) = eiViewport
             finalView    = eiEyeHeadTrans !*! headPose
+            -- finalView    = headPose !*! eiEyeHeadTrans
         glViewport x y w h
 
         forM_ [(x,y,z) | x <- [-2..2], y <- [-2..2], z <- [-2..2] ] $ \(x,y,z) -> do
-          let model = mkTransformation (axisAngle (V3 0 1 0) now) (V3 x y z)
+          let model = mkTransformation (axisAngle (V3 0 1 0) 0) (V3 x y z)
+                        -- !*! scaleMatrix (V3 (y + 2.1) 1 1)
+              color = V4 ((y + 2) / 4) 0.4 ((x+2)/4) 1 -- increase redness as y goes up, blueness as x goes up
 
-          render cubeShape eiProjection finalView model
+
+          render cubeShape eiProjection finalView model color
 
       processEvents events $ closeOnEscape window
 
-      submitFrame ovrCompositor ovrFramebufferTexture (ovrRenderTargetSize ^. _x) (ovrRenderTargetSize ^. _y)
+      submitFrame ovrCompositor ovrFramebufferTexture
 
     swapBuffers window
 
@@ -140,7 +145,7 @@ flatLoop window events cubeShape = do
 
     glViewport 0 0 1024 768
 
-    render cubeShape projection view model
+    render cubeShape projection view model (V4 0.1 0.2 0.8 1)
 
     swapBuffers window
 
@@ -150,8 +155,9 @@ render :: (MonadIO m)
        -> M44 GLfloat
        -> M44 GLfloat
        -> M44 GLfloat
+       -> V4 GLfloat
        -> m ()
-render cubeShape projection viewMat model = do
+render cubeShape projection viewMat model color = do
   let Uniforms{..} = sUniforms cubeShape
       projectionView = projection !*! viewMat
       -- We extract eyePos from the view matrix to get Oculus offsets baked in
@@ -160,7 +166,7 @@ render cubeShape projection viewMat model = do
   uniformV3 uCamera eyePos
 
   withVAO (sVAO cubeShape) $ do
-    uniformV4 uDiffuse (V4 1 0.1 0.1 1)
+    uniformV4 uDiffuse color
 
     drawShape model projectionView cubeShape
 
@@ -212,6 +218,7 @@ createFramebufferTexture sizeX sizeY = do
 -- | Create the framebuffer we'll render into and pass to the Oculus SDK
 createFramebuffer :: GLsizei -> GLsizei -> IO (GLuint, GLuint)
 createFramebuffer sizeX sizeY = do
+  putStrLn $"Creating framebuffer of size" ++ show (sizeX, sizeY)
   framebufferTexture <- createFramebufferTexture sizeX sizeY
 
   framebuffer <- overPtr (glGenFramebuffers 1)
