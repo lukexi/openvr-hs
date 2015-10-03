@@ -49,21 +49,9 @@ executable vr-pal
                      , mtl
                      , time
   default-language:    Haskell2010
-
-executable vr-pal2
-  hs-source-dirs:      app
-  main-is:             MainPerEye.hs
-  ghc-options:         -O2 -Wall -threaded -rtsopts -with-rtsopts=-N
-  build-depends:       base
-                     , halive
-                     , vr-pal
-                     , gl-pal
-                     , glfw-pal
-                     , linear-extra
-                     , lens-extra
-                     , mtl
-                     , time
-  default-language:    Haskell2010
+  other-modules:       Cube
+                       CubeUniforms
+                       Framebuffer
 
 source-repository head
   type:     git

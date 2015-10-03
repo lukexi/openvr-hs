@@ -3,6 +3,7 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE NoMonomorphismRestriction #-}
 module Graphics.VR.OpenVR where
 
 import Foreign
@@ -34,7 +35,17 @@ withArray_ size action = allocaArray size $ \ptr -> do
   _ <- action ptr
   peekArray size ptr
 
-buildM44WithPtr action = transpose . m44FromList . map realToFrac <$> withArray_ 16 action
+
+-- | OpenVR matrices are transposed from Linear's
+m44FromOpenVRList = transpose . m44FromList . map realToFrac
+
+buildM44WithPtr action = m44FromOpenVRList <$> withArray_ 16 action
+
+buildM44sWithPtr count action = splitMatrices <$> withArray_ (16 * count) action
+  where splitMatrices [] = []
+        splitMatrices ms = 
+          let (next, remain) = splitAt 16 ms
+          in m44FromOpenVRList next : splitMatrices remain
 
 C.verbatim [r|
 void fillFromMatrix44(HmdMatrix44_t matrix, float* out) {
@@ -55,12 +66,6 @@ void fillFromMatrix44(HmdMatrix44_t matrix, float* out) {
   out[13] = matrix.m[1][3];
   out[14] = matrix.m[2][3];
   out[15] = matrix.m[3][3];
-  
-  printf("C++: %f %f %f %f %f %f %f %f %f %f %f %f %f %f %f %f\n", 
-    out[0],out[1],out[2],out[3],
-    out[4],out[5],out[6],out[7],
-    out[8],out[9],out[10],out[11],
-    out[12],out[13],out[14],out[15]);
 }
 
 void fillFromMatrix34(HmdMatrix34_t matrix, float* out) {
@@ -200,10 +205,11 @@ getEyeToHeadTransform (IVRSystem systemPtr) eye = liftIO $ do
     }|]
   
 
+maxTrackedDeviceCount = fromIntegral [C.pure|int{k_unMaxTrackedDeviceCount}|]
 
-waitGetPoses :: (Fractional a, MonadIO m) => IVRCompositor -> IVRSystem -> m (M44 a)
+waitGetPoses :: (Fractional a, MonadIO m) => IVRCompositor -> IVRSystem -> m [(M44 a)]
 waitGetPoses (IVRCompositor compositorPtr) (IVRSystem systemPtr) = liftIO $ do
-  buildM44WithPtr $ \ptr ->
+  buildM44sWithPtr maxTrackedDeviceCount $ \ptr ->
     [C.block|void {
       intptr_t compositor = $(intptr_t compositorPtr);
       TrackedDevicePose_t trackedDevicePoses[k_unMaxTrackedDeviceCount];
@@ -216,7 +222,7 @@ waitGetPoses (IVRCompositor compositorPtr) (IVRSystem systemPtr) = liftIO $ do
 
         if (pose.bPoseIsValid && deviceClass == TrackedDeviceClass_HMD) {
           HmdMatrix34_t transform = pose.mDeviceToAbsoluteTracking;
-          fillFromMatrix34(transform, $(float* ptr));
+          fillFromMatrix34(transform, $(float* ptr) + 16 * nDevice);
         }
       }
     }|]
