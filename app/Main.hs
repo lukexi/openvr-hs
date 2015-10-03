@@ -104,7 +104,7 @@ openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
   now <- (/ 2) . (+ 1) . sin . realToFrac . utctDayTime <$> liftIO getCurrentTime
   glClearColor (now * 0.4) 1.0 0 1
 
-  poses <- waitGetPoses ovrCompositor ovrSystem
+  poses <- waitGetPoses ovrCompositor
   
   let (headPose, leftHandPose, rightHandPose) = case poses of
         (head:controller1:controller2:xs) -> (safeInv44 head, controller1, controller2)

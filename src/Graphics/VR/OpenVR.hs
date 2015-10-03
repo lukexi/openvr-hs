@@ -27,6 +27,12 @@ newtype IVRCompositor = IVRCompositor { unIVRCompositor :: CIntPtr } deriving Sh
 
 data HmdEye = LeftEye | RightEye deriving (Enum)
 
+data TrackedDeviceClass = TrackedDeviceClassInvalid
+                        | TrackedDeviceClassHMD
+                        | TrackedDeviceClassController
+                        | TrackedDeviceClassTrackingReference
+                        | TrackedDeviceClassOther
+
 -- | Temporarily allocate an array of the given size, 
 -- pass it to a foreign function, then peek it before it is discarded
 
@@ -207,25 +213,49 @@ getEyeToHeadTransform (IVRSystem systemPtr) eye = liftIO $ do
 
 maxTrackedDeviceCount = fromIntegral [C.pure|int{k_unMaxTrackedDeviceCount}|]
 
-waitGetPoses :: (Fractional a, MonadIO m) => IVRCompositor -> IVRSystem -> m [(M44 a)]
-waitGetPoses (IVRCompositor compositorPtr) (IVRSystem systemPtr) = liftIO $ do
+
+getControllerState (IVRSystem systemPtr) controllerIndex = liftIO $ do
+  result <- [C.block|int {
+      intptr_t system = $(intptr_t systemPtr);
+
+      VRControllerState_t state;
+
+      VR_IVRSystem_GetControllerState(system, $(int controllerIndex), &state);
+
+      return state.ulButtonPressed | EVRButtonId_k_EButton_SteamVR_Trigger;
+    }|]
+  return result
+
+waitGetPoses :: (Fractional a, MonadIO m) => IVRCompositor -> m [(M44 a)]
+waitGetPoses (IVRCompositor compositorPtr) = liftIO $ do
   buildM44sWithPtr maxTrackedDeviceCount $ \ptr ->
     [C.block|void {
       intptr_t compositor = $(intptr_t compositorPtr);
       TrackedDevicePose_t trackedDevicePoses[k_unMaxTrackedDeviceCount];
       VR_IVRCompositor_WaitGetPoses(compositor, trackedDevicePoses, k_unMaxTrackedDeviceCount, NULL, 0);
 
-      intptr_t system = $(intptr_t systemPtr);
+      
       for (int nDevice = 0; nDevice < k_unMaxTrackedDeviceCount; nDevice++) {
         TrackedDevicePose_t pose = trackedDevicePoses[nDevice];
-        TrackedDeviceClass deviceClass = VR_IVRSystem_GetTrackedDeviceClass(system, nDevice);
-
-        if (pose.bPoseIsValid && deviceClass == TrackedDeviceClass_HMD) {
-          HmdMatrix34_t transform = pose.mDeviceToAbsoluteTracking;
-          fillFromMatrix34(transform, $(float* ptr) + 16 * nDevice);
-        }
+        
+        HmdMatrix34_t transform = pose.mDeviceToAbsoluteTracking;
+        fillFromMatrix34(transform, $(float* ptr) + 16 * nDevice);
       }
     }|]
+
+-- | Matches the list of poses from waitGetPoses, such that they can be zipped up
+getTrackedDeviceClasses :: (MonadIO m) => IVRSystem -> m [TrackedDeviceClass]
+getTrackedDeviceClasses (IVRSystem systemPtr) = liftIO $ do
+  [C.block|void {
+    intptr_t system = $(intptr_t systemPtr);
+
+    for (int nDevice = 0; nDevice < k_unMaxTrackedDeviceCount; nDevice++) {
+      TrackedDeviceClass deviceClass = VR_IVRSystem_GetTrackedDeviceClass(system, nDevice);
+
+      // TODO
+    }
+  }|];
+  return []
 
 -- | Submits a frame for each eye using the given textureID as a source,
 -- where the texture is expected to be double the width of getRenderTargetSize 
