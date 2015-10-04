@@ -10,7 +10,6 @@ import Control.Lens.Extra
 import Data.Maybe
 import Control.Monad
 import Halive.Utils
-import Framebuffer
 import CubeUniforms
 import Cube
 
@@ -22,22 +21,6 @@ cubes = [cubeAt x y z | x <- [-2..2], y <- [-2..2], z <- [-2..2] ]
         , _cubScale = 1
         }
       where color = V4 ((y + 2) / 4) 0.4 ((x+2)/4) 1 -- increase redness as y goes up, blueness as x goes up
-
-data EyeInfo = EyeInfo
-  { eiEye                :: HmdEye
-  , eiProjection         :: M44 GLfloat
-  , eiEyeHeadTrans       :: M44 GLfloat
-  , eiViewport           :: (GLint, GLint, GLsizei, GLsizei)
-  , eiFramebuffer        :: GLuint
-  , eiFramebufferTexture :: GLuint
-  }
-
-
-data OpenVR = OpenVR
-  { ovrSystem     :: IVRSystem
-  , ovrCompositor :: IVRCompositor
-  , ovrEyes       :: [EyeInfo]
-  }
 
 main :: IO ()
 main = do
@@ -52,7 +35,7 @@ main = do
   glEnable GL_DEPTH_TEST
   useProgram (sProgram cubeShape)
 
-  mOpenVR <- createOpenVR
+  mOpenVR <- reacquire 1 $ createOpenVR
   -- let mOpenVR = Nothing
   
   case mOpenVR of 
@@ -62,54 +45,15 @@ main = do
       
   putStrLn "Done!"
 
-createOpenVR = do
-  putStrLn "Starting OpenVR"
-  mSystem <- reacquire 1 $ initOpenVR
-
-  case mSystem of
-    Nothing -> putStrLn "Couldn't create OpenVR system :*(" >> return Nothing
-    Just system -> do
-      putStrLn $ "Got system: " ++ show system
-      (w,h) <- getRenderTargetSize system
-      print (w,h)
-      eyes <- forM (zip [0..] [LeftEye, RightEye]) $ \(i, eye) -> do
-        eyeProj  <- getEyeProjectionMatrix system eye 0.1 100
-        eyeTrans <- safeInv44 <$> getEyeToHeadTransform system eye
-
-        (framebuffer, framebufferTexture) <- createFramebuffer (fromIntegral w) (fromIntegral h)
-
-        return EyeInfo
-          { eiEye = eye
-          , eiProjection = eyeProj
-          , eiEyeHeadTrans = eyeTrans
-          , eiViewport = (0, 0, w, h)
-          , eiFramebuffer = framebuffer
-          , eiFramebufferTexture = framebufferTexture
-          }
-
-      mCompositor <- getCompositor
-      case mCompositor of
-        Nothing -> putStrLn "Couldn't create OpenVR compositor :*(" >> return Nothing
-        Just compositor -> do
-          return . Just $ OpenVR
-            { ovrSystem = system
-            , ovrCompositor = compositor
-            , ovrEyes = eyes
-            }
-
-
-
 openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
+
+  _controllerPoses <- getDevicePosesOfClass ovrSystem TrackedDeviceClassController
+  -- print controllerPoses
   
   now <- (/ 2) . (+ 1) . sin . realToFrac . utctDayTime <$> liftIO getCurrentTime
-  glClearColor (now * 0.4) 1.0 0 1
+  glClearColor 0.2 0.1 (now * 0.3) 1
 
-  poses <- waitGetPoses ovrCompositor
-  
-  let (headPose, leftHandPose, rightHandPose) = case poses of
-        (head:controller1:controller2:xs) -> (safeInv44 head, controller1, controller2)
-        _                                 -> (identity, identity, identity)
-  -- let _ = headPose :: M44 GLfloat
+  headPose <- safeInv44 <$> waitGetPoses ovrCompositor
 
   forM_ ovrEyes $ \EyeInfo{..} -> do
 

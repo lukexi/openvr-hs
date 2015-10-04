@@ -21,6 +21,7 @@ library
                      , inline-c-cpp
                      , linear-extra
                      , mtl
+                     , gl-pal
                      , raw-strings-qq
   default-language:    Haskell2010
   include-dirs:        openvr/headers
@@ -51,7 +52,6 @@ executable vr-pal
   default-language:    Haskell2010
   other-modules:       Cube
                        CubeUniforms
-                       Framebuffer
 
 source-repository head
   type:     git

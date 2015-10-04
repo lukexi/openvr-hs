@@ -15,6 +15,8 @@ import Data.Monoid
 import Linear.Extra
 import Text.RawString.QQ (r)
 import Debug.Trace
+import Graphics.GL.Pal
+import Control.Monad
 
 -- Set up inline-c to gain Cpp and Function Pointer abilities
 C.context (C.cppCtx <> C.funCtx)
@@ -33,9 +35,18 @@ data TrackedDeviceClass = TrackedDeviceClassInvalid
                         | TrackedDeviceClassTrackingReference
                         | TrackedDeviceClassOther
 
+
+
+maxTrackedDeviceCount = fromIntegral [C.pure|int{k_unMaxTrackedDeviceCount}|]
+
+trackedDeviceClassToC TrackedDeviceClassInvalid           = [C.pure|int{TrackedDeviceClass_Invalid}|]
+trackedDeviceClassToC TrackedDeviceClassHMD               = [C.pure|int{TrackedDeviceClass_HMD}|]
+trackedDeviceClassToC TrackedDeviceClassController        = [C.pure|int{TrackedDeviceClass_Controller}|]
+trackedDeviceClassToC TrackedDeviceClassTrackingReference = [C.pure|int{TrackedDeviceClass_TrackingReference}|]
+trackedDeviceClassToC TrackedDeviceClassOther             = [C.pure|int{TrackedDeviceClass_Other}|]
+
 -- | Temporarily allocate an array of the given size, 
 -- pass it to a foreign function, then peek it before it is discarded
-
 withArray_ :: (Storable a) => Int -> (Ptr a -> IO ()) -> IO [a]
 withArray_ size action = allocaArray size $ \ptr -> do
   _ <- action ptr
@@ -45,7 +56,12 @@ withArray_ size action = allocaArray size $ \ptr -> do
 -- | OpenVR matrices are transposed from Linear's
 m44FromOpenVRList = transpose . m44FromList . map realToFrac
 
-buildM44WithPtr action = m44FromOpenVRList <$> withArray_ 16 action
+-- buildM44WithPtr action = m44FromOpenVRList <$> withArray_ 16 action
+
+buildM44WithPtr action = fmap transpose . alloca $ \ptr -> do
+  let _ = ptr :: Ptr (M44 GLfloat)
+  action (castPtr ptr)
+  peek ptr
 
 buildM44sWithPtr count action = splitMatrices <$> withArray_ (16 * count) action
   where splitMatrices [] = []
@@ -93,6 +109,29 @@ void fillFromMatrix34(HmdMatrix34_t matrix, float* out) {
   out[14] = matrix.m[2][3];
   out[15] = 1;
 }
+
+// Via https://github.com/ValveSoftware/openvr/wiki/IVRSystem::GetDeviceToAbsoluteTrackingPose
+
+float getSecondsToPhotons(intptr_t system) {
+  float fSecondsSinceLastVsync; 
+  VR_IVRSystem_GetTimeSinceLastVsync(system, &fSecondsSinceLastVsync, NULL );
+  float fDisplayFrequency = VR_IVRSystem_GetFloatTrackedDeviceProperty(
+    system,
+    k_unTrackedDeviceIndex_Hmd, 
+    TrackedDeviceProperty_Prop_DisplayFrequency_Float, 
+    NULL);
+  
+  float fFrameDuration = 1.f / fDisplayFrequency;
+
+  float fVsyncToPhotons = VR_IVRSystem_GetFloatTrackedDeviceProperty(
+    system,
+    k_unTrackedDeviceIndex_Hmd, 
+    TrackedDeviceProperty_Prop_SecondsFromVsyncToPhotons_Float,
+    NULL);
+
+  float fPredictedSecondsFromNow = fFrameDuration - fSecondsSinceLastVsync + fVsyncToPhotons;
+  return fPredictedSecondsFromNow;
+}
 |]
 
 -- | Creates the OpenVR System object, which is the main point of interface with OpenVR.
@@ -124,8 +163,7 @@ getCompositor = liftIO $ do
 
     intptr_t compositor = VR_GetGenericInterface(IVRCompositor_Version, &error);
 
-    if (error != HmdError_None)
-    {
+    if (error != HmdError_None) {
       compositor = 0;
 
       printf("Compositor initialization failed with error: %s\n", VR_GetStringForHmdError(error));
@@ -133,8 +171,7 @@ getCompositor = liftIO $ do
     }
 
     uint32_t unSize = VR_IVRCompositor_GetLastError(compositor, NULL, 0);
-    if (unSize > 1)
-    {
+    if (unSize > 1) {
       char buffer[unSize];
       VR_IVRCompositor_GetLastError(compositor, buffer, unSize);
       printf( "Compositor - %s\n", buffer );
@@ -179,7 +216,7 @@ getEyeViewport (IVRSystem systemPtr) eye = liftIO $ do
 
 
 -- | Returns the projection matrix for the given eye for the given near and far clipping planes.
-getEyeProjectionMatrix :: (Fractional a, MonadIO m) => IVRSystem -> HmdEye -> Float -> Float -> m (M44 a)
+getEyeProjectionMatrix :: (MonadIO m) => IVRSystem -> HmdEye -> Float -> Float -> m (M44 GLfloat)
 getEyeProjectionMatrix (IVRSystem systemPtr) eye (realToFrac -> zNear) (realToFrac -> zFar) = liftIO $ do
   let eyeNum = fromIntegral $ fromEnum eye
   buildM44WithPtr $ \ptr ->
@@ -196,7 +233,7 @@ getEyeProjectionMatrix (IVRSystem systemPtr) eye (realToFrac -> zNear) (realToFr
 
 
 -- | Returns the offset of each eye from the head pose.
-getEyeToHeadTransform :: (Fractional a, MonadIO m) => IVRSystem -> HmdEye -> m (M44 a)
+getEyeToHeadTransform :: (MonadIO m) => IVRSystem -> HmdEye -> m (M44 GLfloat)
 getEyeToHeadTransform (IVRSystem systemPtr) eye = liftIO $ do
   let eyeNum = fromIntegral $ fromEnum eye
   buildM44WithPtr $ \ptr ->
@@ -211,7 +248,6 @@ getEyeToHeadTransform (IVRSystem systemPtr) eye = liftIO $ do
     }|]
   
 
-maxTrackedDeviceCount = fromIntegral [C.pure|int{k_unMaxTrackedDeviceCount}|]
 
 
 getControllerState (IVRSystem systemPtr) controllerIndex = liftIO $ do
@@ -222,40 +258,74 @@ getControllerState (IVRSystem systemPtr) controllerIndex = liftIO $ do
 
       VR_IVRSystem_GetControllerState(system, $(int controllerIndex), &state);
 
-      return state.ulButtonPressed | EVRButtonId_k_EButton_SteamVR_Trigger;
+      return (state.ulButtonPressed & EVRButtonId_k_EButton_SteamVR_Trigger) 
+        == EVRButtonId_k_EButton_SteamVR_Trigger;
     }|]
   return result
 
-waitGetPoses :: (Fractional a, MonadIO m) => IVRCompositor -> m [(M44 a)]
+waitGetPoses :: (MonadIO m) => IVRCompositor -> m (M44 GLfloat)
 waitGetPoses (IVRCompositor compositorPtr) = liftIO $ do
-  buildM44sWithPtr maxTrackedDeviceCount $ \ptr ->
+  buildM44WithPtr $ \ptr ->
     [C.block|void {
       intptr_t compositor = $(intptr_t compositorPtr);
-      TrackedDevicePose_t trackedDevicePoses[k_unMaxTrackedDeviceCount];
-      VR_IVRCompositor_WaitGetPoses(compositor, trackedDevicePoses, k_unMaxTrackedDeviceCount, NULL, 0);
+      TrackedDevicePose_t hmdPose;
+      VR_IVRCompositor_WaitGetPoses(compositor, &hmdPose, 1, NULL, 0);
 
-      
+      HmdMatrix34_t transform = hmdPose.mDeviceToAbsoluteTracking;
+      fillFromMatrix34(transform, $(float* ptr));
+    }|]
+
+
+-- | Returns the predicted poses of devices of the given class at the next display time
+getDevicePosesOfClass system@(IVRSystem systemPtr) trackedDeviceClass = liftIO $ do
+  let trackedDeviceClassInt = trackedDeviceClassToC trackedDeviceClass
+  count <- getNumDevicesOfClass system trackedDeviceClass
+
+  buildM44sWithPtr count $ \ptr ->
+    [C.block| void {
+      intptr_t system = $(intptr_t systemPtr);
+
+      TrackedDevicePose_t trackedDevicePoses[k_unMaxTrackedDeviceCount];
+      float secondsToPhotons = getSecondsToPhotons(system);
+
+      VR_IVRSystem_GetDeviceToAbsoluteTrackingPose(system, 
+        TrackingUniverseOrigin_TrackingUniverseStanding,
+        secondsToPhotons,
+        trackedDevicePoses,
+        k_unMaxTrackedDeviceCount
+        );
+
+      int offset = 0;
       for (int nDevice = 0; nDevice < k_unMaxTrackedDeviceCount; nDevice++) {
-        TrackedDevicePose_t pose = trackedDevicePoses[nDevice];
+        TrackedDeviceClass deviceClass = VR_IVRSystem_GetTrackedDeviceClass(system, nDevice);
+
+        if (deviceClass == $(int trackedDeviceClassInt)) {
+          TrackedDevicePose_t pose = trackedDevicePoses[nDevice];
+          HmdMatrix34_t transform = pose.mDeviceToAbsoluteTracking;
+          fillFromMatrix34(transform, $(float* ptr) + 16 * offset);
+          offset++;
+        }
         
-        HmdMatrix34_t transform = pose.mDeviceToAbsoluteTracking;
-        fillFromMatrix34(transform, $(float* ptr) + 16 * nDevice);
       }
     }|]
 
--- | Matches the list of poses from waitGetPoses, such that they can be zipped up
-getTrackedDeviceClasses :: (MonadIO m) => IVRSystem -> m [TrackedDeviceClass]
-getTrackedDeviceClasses (IVRSystem systemPtr) = liftIO $ do
-  [C.block|void {
-    intptr_t system = $(intptr_t systemPtr);
+getNumDevicesOfClass (IVRSystem systemPtr) trackedDeviceClass = liftIO $ do
+  let trackedDeviceClassInt = trackedDeviceClassToC trackedDeviceClass
+  fromIntegral <$> 
+    [C.block| int {
+      intptr_t system = $(intptr_t systemPtr);
+      int numDevicesOfClass = 0;
 
-    for (int nDevice = 0; nDevice < k_unMaxTrackedDeviceCount; nDevice++) {
-      TrackedDeviceClass deviceClass = VR_IVRSystem_GetTrackedDeviceClass(system, nDevice);
+      for (int nDevice = 0; nDevice < k_unMaxTrackedDeviceCount; nDevice++) {
+        TrackedDeviceClass deviceClass = VR_IVRSystem_GetTrackedDeviceClass(system, nDevice);
 
-      // TODO
-    }
-  }|];
-  return []
+        if (deviceClass == $(int trackedDeviceClassInt)) {
+          numDevicesOfClass++;
+        }
+      }
+
+      return numDevicesOfClass;
+    }|]
 
 -- | Submits a frame for each eye using the given textureID as a source,
 -- where the texture is expected to be double the width of getRenderTargetSize 
@@ -289,3 +359,55 @@ submitFrameForEye (IVRCompositor compositorPtr) eye (fromIntegral -> framebuffer
     VR_IVRCompositor_Submit(compositor, eye,  GraphicsAPIConvention_API_OpenGL, 
       (void*)$(unsigned int framebufferTextureID), NULL, VRSubmitFlags_t_Submit_Default);
   }|]
+
+
+data EyeInfo = EyeInfo
+  { eiEye                :: HmdEye
+  , eiProjection         :: M44 GLfloat
+  , eiEyeHeadTrans       :: M44 GLfloat
+  , eiViewport           :: (GLint, GLint, GLsizei, GLsizei)
+  , eiFramebuffer        :: GLuint
+  , eiFramebufferTexture :: GLuint
+  }
+
+
+data OpenVR = OpenVR
+  { ovrSystem     :: IVRSystem
+  , ovrCompositor :: IVRCompositor
+  , ovrEyes       :: [EyeInfo]
+  }
+
+createOpenVR = do
+  putStrLn "Starting OpenVR"
+  mSystem <- initOpenVR
+
+  case mSystem of
+    Nothing -> putStrLn "Couldn't create OpenVR system :*(" >> return Nothing
+    Just system -> do
+      putStrLn $ "Got system: " ++ show system
+      (w,h) <- getRenderTargetSize system
+      print (w,h)
+      eyes <- forM (zip [0..] [LeftEye, RightEye]) $ \(i, eye) -> do
+        eyeProj  <- getEyeProjectionMatrix system eye 0.1 100
+        eyeTrans <- safeInv44 <$> getEyeToHeadTransform system eye
+
+        (framebuffer, framebufferTexture) <- createFramebuffer (fromIntegral w) (fromIntegral h)
+
+        return EyeInfo
+          { eiEye = eye
+          , eiProjection = eyeProj
+          , eiEyeHeadTrans = eyeTrans
+          , eiViewport = (0, 0, w, h)
+          , eiFramebuffer = framebuffer
+          , eiFramebufferTexture = framebufferTexture
+          }
+
+      mCompositor <- getCompositor
+      case mCompositor of
+        Nothing -> putStrLn "Couldn't create OpenVR compositor :*(" >> return Nothing
+        Just compositor -> do
+          return . Just $ OpenVR
+            { ovrSystem = system
+            , ovrCompositor = compositor
+            , ovrEyes = eyes
+            }
