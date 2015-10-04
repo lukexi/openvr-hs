@@ -249,19 +249,37 @@ getEyeToHeadTransform (IVRSystem systemPtr) eye = liftIO $ do
   
 
 
-
+-- | The controller index here refers to an index into the number of controllers there are,
+-- not the TrackedDevice index. The first controller is always controllerIndex 0,
+-- the second is controllerIndex 1, and so on, regardless of their TrackedDevice indices.
 getControllerState (IVRSystem systemPtr) controllerIndex = liftIO $ do
-  result <- [C.block|int {
+  (trigger, grip, start) <- C.withPtrs_ $ \(triggerPtr, gripPtr, startPtr) -> 
+    [C.block|void {
       intptr_t system = $(intptr_t systemPtr);
+      
+      // Keep track of how many controllers we've found
+      int index = 0;
+      // Iterate through all tracked devices looking for controllers
+      for (int nDevice = 0; nDevice < k_unMaxTrackedDeviceCount; nDevice++) {
+        TrackedDeviceClass deviceClass = VR_IVRSystem_GetTrackedDeviceClass(system, nDevice);
+        if (deviceClass == TrackedDeviceClass_Controller) {
 
-      VRControllerState_t state;
+          if (index == $(int controllerIndex)) {
+            VRControllerState_t state;
+            VR_IVRSystem_GetControllerState(system, $(int controllerIndex), &state);
 
-      VR_IVRSystem_GetControllerState(system, $(int controllerIndex), &state);
-
-      return (state.ulButtonPressed & EVRButtonId_k_EButton_SteamVR_Trigger) 
-        == EVRButtonId_k_EButton_SteamVR_Trigger;
+            *$(int* triggerPtr) = (state.ulButtonPressed & EVRButtonId_k_EButton_SteamVR_Trigger) 
+                                  == EVRButtonId_k_EButton_SteamVR_Trigger;
+            *$(int* gripPtr)    = (state.ulButtonPressed & EVRButtonId_k_EButton_Grip) 
+                                  == EVRButtonId_k_EButton_Grip;
+            *$(int* startPtr)   = (state.ulButtonPressed & EVRButtonId_k_EButton_ApplicationMenu) 
+                                  == EVRButtonId_k_EButton_ApplicationMenu;
+          }
+          index++;
+        }
+      }
     }|]
-  return result
+  return (trigger /= 0, grip /= 0, start /= 0)
 
 waitGetPoses :: (MonadIO m) => IVRCompositor -> m (M44 GLfloat)
 waitGetPoses (IVRCompositor compositorPtr) = liftIO $ do
