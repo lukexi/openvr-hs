@@ -16,9 +16,8 @@ import Cube
 cubes = [cubeAt x y z | x <- [-2..2], y <- [-2..2], z <- [-2..2] ]
   where
     cubeAt x y z = Cube 
-        { _cubPose = newPose {_posPosition = V3 x y z}
+        { _cubMatrix = transformationFromPose $ newPose { _posPosition = V3 x y z }
         , _cubColor = color
-        , _cubScale = 1
         }
       where color = V4 ((y + 2) / 4) 0.4 ((x+2)/4) 1 -- increase redness as y goes up, blueness as x goes up
 
@@ -45,10 +44,34 @@ main = do
       
   putStrLn "Done!"
 
+data Hand = Hand 
+  { hndMatrix :: M44 GLfloat
+  , hndXY :: V2 GLfloat
+  , hndTrigger :: Bool
+  , hndGrip :: Bool
+  , hndStart :: Bool
+  } deriving Show
+
 openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
 
-  _controllerPoses <- getDevicePosesOfClass ovrSystem TrackedDeviceClassController
-  -- print controllerPoses
+  poses <- getDevicePosesOfClass ovrSystem TrackedDeviceClassController
+
+  hands <- forM (zip [0..] poses) $ \(i, pose) -> do
+    (trigger, grip, start) <- getControllerState ovrSystem i
+    let hand = Hand
+          { hndMatrix = pose
+          , hndXY = 0
+          , hndTrigger = trigger
+          , hndGrip = grip
+          , hndStart = start
+          }
+    print hand
+    return hand
+
+  let handCubes = flip map hands $ \hand -> Cube
+        { _cubMatrix = hndMatrix hand
+        , _cubColor = V4 1 0 0 1
+        }
   
   now <- (/ 2) . (+ 1) . sin . realToFrac . utctDayTime <$> liftIO getCurrentTime
   glClearColor 0.2 0.1 (now * 0.3) 1
@@ -63,7 +86,7 @@ openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
           finalView    = eiEyeHeadTrans !*! headPose
       glViewport x y w h
 
-      render cubeShape eiProjection finalView cubes
+      render cubeShape eiProjection finalView (handCubes ++ cubes)
 
       submitFrameForEye ovrCompositor eiEye eiFramebufferTexture
 
@@ -108,7 +131,7 @@ render cubeShape projection viewMat cubes = do
   withVAO (sVAO cubeShape) $ forM_ cubes $ \cube -> do
     uniformV4 uDiffuse (cube ^. cubColor)
 
-    drawShape (transformationFromPose (cube ^. cubPose)) projectionView cubeShape
+    drawShape (cube ^. cubMatrix) projectionView cubeShape
 
 drawShape :: MonadIO m => M44 GLfloat -> M44 GLfloat -> Shape Uniforms -> m ()
 drawShape model projectionView shape = do 
