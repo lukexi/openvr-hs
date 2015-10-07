@@ -252,10 +252,37 @@ getEyeToHeadTransform (IVRSystem systemPtr) eye = liftIO $ do
 -- | The controller index here refers to an index into the number of controllers there are,
 -- not the TrackedDevice index. The first controller is always controllerIndex 0,
 -- the second is controllerIndex 1, and so on, regardless of their TrackedDevice indices.
-getControllerState (IVRSystem systemPtr) controllerIndex = liftIO $ do
+getControllerState system@(IVRSystem systemPtr) controllerIndex = liftIO $ do
+
+  deviceIndex <- getDeviceIndexOfController system controllerIndex
   (trigger, grip, start) <- C.withPtrs_ $ \(triggerPtr, gripPtr, startPtr) -> 
     [C.block|void {
       intptr_t system = $(intptr_t systemPtr);
+      int nDevice = $(int deviceIndex);
+
+      VRControllerState_t state;
+      VR_IVRSystem_GetControllerState(system, nDevice, &state);
+
+      for (int nAxis; nAxis < k_unControllerStateAxisCount; nAxis++) {
+        printf("Axis %i: %f \t%f\n", 
+          nAxis, 
+          state.rAxis[nAxis].x, 
+          state.rAxis[nAxis].y);
+      }
+
+      *$(int* triggerPtr) = (state.ulButtonTouched & EVRButtonId_k_EButton_SteamVR_Trigger) 
+                            == EVRButtonId_k_EButton_SteamVR_Trigger;
+      *$(int* gripPtr)    = (state.ulButtonTouched & EVRButtonId_k_EButton_Grip) 
+                            == EVRButtonId_k_EButton_Grip;
+      *$(int* startPtr)   = (state.ulButtonTouched & EVRButtonId_k_EButton_ApplicationMenu) 
+                            == EVRButtonId_k_EButton_ApplicationMenu;
+      
+    }|]
+  return (trigger /= 0, grip /= 0, start /= 0)
+
+getDeviceIndexOfController (IVRSystem systemPtr) controllerNumber = liftIO $ do
+  [C.block|int {
+    intptr_t system = $(intptr_t systemPtr);
       
       // Keep track of how many controllers we've found
       int index = 0;
@@ -263,23 +290,13 @@ getControllerState (IVRSystem systemPtr) controllerIndex = liftIO $ do
       for (int nDevice = 0; nDevice < k_unMaxTrackedDeviceCount; nDevice++) {
         TrackedDeviceClass deviceClass = VR_IVRSystem_GetTrackedDeviceClass(system, nDevice);
         if (deviceClass == TrackedDeviceClass_Controller) {
-
-          if (index == $(int controllerIndex)) {
-            VRControllerState_t state;
-            VR_IVRSystem_GetControllerState(system, $(int controllerIndex), &state);
-
-            *$(int* triggerPtr) = (state.ulButtonPressed & EVRButtonId_k_EButton_SteamVR_Trigger) 
-                                  == EVRButtonId_k_EButton_SteamVR_Trigger;
-            *$(int* gripPtr)    = (state.ulButtonPressed & EVRButtonId_k_EButton_Grip) 
-                                  == EVRButtonId_k_EButton_Grip;
-            *$(int* startPtr)   = (state.ulButtonPressed & EVRButtonId_k_EButton_ApplicationMenu) 
-                                  == EVRButtonId_k_EButton_ApplicationMenu;
+          if (index == $(int controllerNumber)) {
+            return nDevice;
           }
-          index++;
         }
       }
-    }|]
-  return (trigger /= 0, grip /= 0, start /= 0)
+      return 0;
+  }|]
 
 waitGetPoses :: (MonadIO m) => IVRCompositor -> m (M44 GLfloat)
 waitGetPoses (IVRCompositor compositorPtr) = liftIO $ do
