@@ -70,6 +70,10 @@ buildM44sWithPtr count action = splitMatrices <$> withArray_ (16 * count) action
           in m44FromOpenVRList next : splitMatrices remain
 
 C.verbatim [r|
+
+// Missing from 
+inline uint64_t ButtonMaskFromId( EVRButtonId id ) { return 1ull << id; }
+
 void fillFromMatrix44(HmdMatrix44_t matrix, float* out) {
   
   out[0]  = matrix.m[0][0];
@@ -248,54 +252,90 @@ getEyeToHeadTransform (IVRSystem systemPtr) eye = liftIO $ do
     }|]
   
 
+triggerHapticPulse system@(IVRSystem systemPtr) controllerNumber axis duration = liftIO $ do
+  deviceIndex <- getDeviceIndexOfController system controllerNumber
+  [C.block|void {
+    intptr_t system = $(intptr_t systemPtr);
+    int nDevice = $(int deviceIndex);
+    int32_t unAxisId = $(int axis);
+    unsigned short usDurationMicroSec = $(unsigned short duration);
+    VR_IVRSystem_TriggerHapticPulse(system, nDevice, unAxisId, usDurationMicroSec);
+  }|]
 
--- | The controller index here refers to an index into the number of controllers there are,
--- not the TrackedDevice index. The first controller is always controllerIndex 0,
--- the second is controllerIndex 1, and so on, regardless of their TrackedDevice indices.
-getControllerState system@(IVRSystem systemPtr) controllerIndex = liftIO $ do
+-- | Currently just prints out the event
+pollNextEvent system@(IVRSystem systemPtr) = liftIO $ do
+  [C.block|void {
+    intptr_t system = $(intptr_t systemPtr);
 
-  deviceIndex <- getDeviceIndexOfController system controllerIndex
-  (trigger, grip, start) <- C.withPtrs_ $ \(triggerPtr, gripPtr, startPtr) -> 
+    VREvent_t event;
+
+    while (VR_IVRSystem_PollNextEvent(system, &event)) {
+      char *eventName = VR_IVRSystem_GetEventTypeNameFromEnum(system, event.eventType);
+      printf("Got event type: %s\n", eventName);
+    }
+
+    
+  }|]
+  
+-- | The controller number here refers to an index into the number of controllers there are,
+-- not the TrackedDevice index. The first controller is always controllerNumber 0,
+-- the second is controllerNumber 1, and so on, regardless of their TrackedDevice indices.
+getControllerState system@(IVRSystem systemPtr) controllerNumber = liftIO $ do
+
+  deviceIndex <- getDeviceIndexOfController system controllerNumber
+  (x, y, trigger, grip, start) <- C.withPtrs_ $ \(xPtr, yPtr, triggerPtr, gripPtr, startPtr) -> 
     [C.block|void {
       intptr_t system = $(intptr_t systemPtr);
       int nDevice = $(int deviceIndex);
 
       VRControllerState_t state;
-      VR_IVRSystem_GetControllerState(system, nDevice, &state);
+      VR_IVRSystem_GetControllerState(system, nDevice, &state);     
+      
 
+      /*
       for (int nAxis; nAxis < k_unControllerStateAxisCount; nAxis++) {
-        printf("Axis %i: %f \t%f\n", 
+        printf("%i Axis %i: %f \t%f\n", 
+          nDevice,
           nAxis, 
           state.rAxis[nAxis].x, 
           state.rAxis[nAxis].y);
       }
 
-      *$(int* triggerPtr) = (state.ulButtonTouched & EVRButtonId_k_EButton_SteamVR_Trigger) 
-                            == EVRButtonId_k_EButton_SteamVR_Trigger;
-      *$(int* gripPtr)    = (state.ulButtonTouched & EVRButtonId_k_EButton_Grip) 
-                            == EVRButtonId_k_EButton_Grip;
-      *$(int* startPtr)   = (state.ulButtonTouched & EVRButtonId_k_EButton_ApplicationMenu) 
-                            == EVRButtonId_k_EButton_ApplicationMenu;
+      printf("%i Touched: %i\n", nDevice, state.ulButtonTouched);
+      printf("%i Pressed: %i\n", nDevice, state.ulButtonPressed);
+      */
+
+
+      // Yes, this is intentional - the values seem to be offset
+      // such that x is on rAxis[1].y and y is on rAxis[0].x;
+      *$(float* xPtr) = state.rAxis[1].y;
+      *$(float* yPtr) = state.rAxis[2].x;
+
+      *$(float* triggerPtr) = state.rAxis[2].y;
+
+      int gripMask = ButtonMaskFromId(EVRButtonId_k_EButton_Grip);
+      int menuMask = ButtonMaskFromId(EVRButtonId_k_EButton_ApplicationMenu);
+
+      *$(int* gripPtr)    = (state.ulButtonTouched & gripMask) 
+                            == gripMask;
+      *$(int* startPtr)   = (state.ulButtonTouched & menuMask) 
+                            == menuMask;
       
     }|]
-  return (trigger /= 0, grip /= 0, start /= 0)
+  return (x, y, trigger, grip /= 0, start /= 0)
 
 getDeviceIndexOfController (IVRSystem systemPtr) controllerNumber = liftIO $ do
   [C.block|int {
     intptr_t system = $(intptr_t systemPtr);
-      
-      // Keep track of how many controllers we've found
-      int index = 0;
-      // Iterate through all tracked devices looking for controllers
-      for (int nDevice = 0; nDevice < k_unMaxTrackedDeviceCount; nDevice++) {
-        TrackedDeviceClass deviceClass = VR_IVRSystem_GetTrackedDeviceClass(system, nDevice);
-        if (deviceClass == TrackedDeviceClass_Controller) {
-          if (index == $(int controllerNumber)) {
-            return nDevice;
-          }
-        }
-      }
+    int controllerNumber = $(int controllerNumber);
+
+    TrackedDeviceIndex_t deviceIndices[2];
+    uint32_t numIndices = VR_IVRSystem_GetSortedTrackedDeviceIndicesOfClass(system, TrackedDeviceClass_Controller, deviceIndices, 2, 0);
+    if (numIndices > controllerNumber) {
+      return deviceIndices[controllerNumber];
+    } else {
       return 0;
+    }
   }|]
 
 waitGetPoses :: (MonadIO m) => IVRCompositor -> m (M44 GLfloat)

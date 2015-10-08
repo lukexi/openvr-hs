@@ -38,30 +38,33 @@ main = do
   -- let mOpenVR = Nothing
   
   case mOpenVR of 
-    Just openVR -> openVRLoop window events cubeShape openVR
+    Just openVR -> do
+      triggerHapticPulse (ovrSystem openVR) 0 0 1000
+      triggerHapticPulse (ovrSystem openVR) 1 0 1000
+      openVRLoop window events cubeShape openVR
     Nothing -> flatLoop window events cubeShape
   
       
   putStrLn "Done!"
 
 data Hand = Hand 
-  { hndMatrix :: M44 GLfloat
-  , hndXY :: V2 GLfloat
-  , hndTrigger :: Bool
-  , hndGrip :: Bool
+  { hndGrip :: Bool
   , hndStart :: Bool
+  , hndTrigger :: GLfloat
+  , hndXY :: V2 GLfloat
+  , hndMatrix :: M44 GLfloat
   } deriving Show
 
 openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
-
+  pollNextEvent ovrSystem
   poses <- getDevicePosesOfClass ovrSystem TrackedDeviceClassController
 
   hands <- forM (zip [0..] poses) $ \(i, pose) -> do
-    (trigger, grip, start) <- getControllerState ovrSystem i
+    (x, y, trigger, grip, start) <- getControllerState ovrSystem i
     let hand = Hand
           { hndMatrix = pose
-          , hndXY = 0
-          , hndTrigger = trigger
+          , hndXY = realToFrac <$> V2 x y
+          , hndTrigger = realToFrac trigger
           , hndGrip = grip
           , hndStart = start
           }

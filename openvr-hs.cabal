@@ -1,14 +1,14 @@
-name:                vr-pal
+name:                openvr-hs
 version:             0.1.0.0
-synopsis:            Initial project template from stack
+synopsis:            Bindings for OpenVR and the Valve/HTC Vive
 description:         Please see README.md
-homepage:            http://github.com/githubuser/vr-pal#readme
+homepage:            http://github.com/lukexi/openvr-hs#readme
 license:             BSD3
 license-file:        LICENSE
-author:              Author name here
-maintainer:          example@example.com
-copyright:           2010 Author Here
-category:            Web
+author:              Luke Iannini
+maintainer:          lukexi@me.com
+copyright:           2015 Luke Iannini
+category:            Graphics
 build-type:          Simple
 -- extra-source-files:
 cabal-version:       >=1.10
@@ -36,13 +36,13 @@ library
                        C:\msys64\usr\local\ghc\mingw\bin
     cc-options:        -fno-exceptions
 
-executable vr-pal
+executable demo
   hs-source-dirs:      app
   main-is:             Main.hs
   ghc-options:         -O2 -Wall -threaded -rtsopts -with-rtsopts=-N
   build-depends:       base
                      , halive
-                     , vr-pal
+                     , openvr-hs
                      , gl-pal
                      , glfw-pal
                      , linear-extra
@@ -55,4 +55,4 @@ executable vr-pal
 
 source-repository head
   type:     git
-  location: https://github.com/githubuser/vr-pal
+  location: https://github.com/lukexi/openvr-hs
