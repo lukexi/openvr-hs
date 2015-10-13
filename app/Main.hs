@@ -13,7 +13,8 @@ import Halive.Utils
 import CubeUniforms
 import Cube
 
-cubes = [cubeAt x y z | x <- [-2..2], y <- [-2..2], z <- [-2..2] ]
+worldCubes :: [Cube]
+worldCubes = [cubeAt x y z | x <- [-2..2], y <- [-2..2], z <- [-2..2] ]
   where
     cubeAt x y z = Cube 
         { _cubMatrix = transformationFromPose $ newPose { _posPosition = V3 x y z }
@@ -55,6 +56,7 @@ data Hand = Hand
   , hndMatrix :: M44 GLfloat
   } deriving Show
 
+openVRLoop :: Window -> Events -> Shape Uniforms -> OpenVR -> IO ()
 openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
   pollNextEvent ovrSystem
   poses <- getDevicePosesOfClass ovrSystem TrackedDeviceClassController
@@ -89,7 +91,7 @@ openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
           finalView    = eiEyeHeadTrans !*! headPose
       glViewport x y w h
 
-      render cubeShape eiProjection finalView (handCubes ++ cubes)
+      render cubeShape eiProjection finalView (handCubes ++ worldCubes)
 
       submitFrameForEye ovrCompositor eiEye eiFramebufferTexture
 
@@ -97,11 +99,10 @@ openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
 
   swapBuffers window
 
-
+flatLoop :: MonadIO m => Window -> Events -> Shape Uniforms -> m ()
 flatLoop window events cubeShape = do
-  let zoom = 3
-      view = lookAt (V3 0 2 0) (V3 0 0 zoom) (V3 0 1 0)
-      projection = perspective 45 (1024/768) 0.1 1000
+  let viewMat = lookAt (V3 0 2 0) (V3 0 0 3) (V3 0 1 0)
+      projectionMat = perspective 45 (1024/768) 0.1 1000
   whileWindow window $ do
     processEvents events (closeOnEscape window)
 
@@ -112,7 +113,7 @@ flatLoop window events cubeShape = do
 
     glViewport 0 0 1024 768
 
-    render cubeShape projection view cubes
+    render cubeShape projectionMat viewMat worldCubes
 
     swapBuffers window
 

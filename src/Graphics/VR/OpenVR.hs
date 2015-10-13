@@ -14,15 +14,30 @@ import Control.Monad.Trans
 import Data.Monoid
 import Linear.Extra
 import Text.RawString.QQ (r)
-import Debug.Trace
 import Graphics.GL.Pal
 import Control.Monad
 
 -- Set up inline-c to gain Cpp and Function Pointer abilities
 C.context (C.cppCtx <> C.funCtx)
+
 -- Import OpenVR
 C.include "openvr_capi.h"
 C.include "stdio.h"
+
+-- Add the VREvent_t type and ButtonMaskFromId method
+-- from openvr.h, which are missing from openvr_capi.h
+C.verbatim [r|
+/** An event posted by the server to all running applications */
+struct VREvent_t
+{
+  EVREventType eventType;
+  TrackedDeviceIndex_t trackedDeviceIndex;
+  VREvent_Data_t data;
+  float eventAgeSeconds;
+};
+
+inline uint64_t ButtonMaskFromId( EVRButtonId id ) { return 1ull << id; }
+|]
 
 newtype IVRSystem     = IVRSystem     { unIVRSystem     :: CIntPtr } deriving Show
 newtype IVRCompositor = IVRCompositor { unIVRCompositor :: CIntPtr } deriving Show
@@ -35,10 +50,10 @@ data TrackedDeviceClass = TrackedDeviceClassInvalid
                         | TrackedDeviceClassTrackingReference
                         | TrackedDeviceClassOther
 
-
-
+maxTrackedDeviceCount :: Num b => b
 maxTrackedDeviceCount = fromIntegral [C.pure|int{k_unMaxTrackedDeviceCount}|]
 
+trackedDeviceClassToC :: TrackedDeviceClass -> CInt
 trackedDeviceClassToC TrackedDeviceClassInvalid           = [C.pure|int{TrackedDeviceClass_Invalid}|]
 trackedDeviceClassToC TrackedDeviceClassHMD               = [C.pure|int{TrackedDeviceClass_HMD}|]
 trackedDeviceClassToC TrackedDeviceClassController        = [C.pure|int{TrackedDeviceClass_Controller}|]
@@ -54,15 +69,17 @@ withArray_ size action = allocaArray size $ \ptr -> do
 
 
 -- | OpenVR matrices are transposed from Linear's
+m44FromOpenVRList :: (Fractional a, Real a1) => [a1] -> M44 a
 m44FromOpenVRList = transpose . m44FromList . map realToFrac
 
 -- buildM44WithPtr action = m44FromOpenVRList <$> withArray_ 16 action
-
+buildM44WithPtr :: (Ptr b -> IO a) -> IO (M44 GLfloat)
 buildM44WithPtr action = fmap transpose . alloca $ \ptr -> do
   let _ = ptr :: Ptr (M44 GLfloat)
   action (castPtr ptr)
   peek ptr
 
+buildM44sWithPtr :: (Fractional a, Real a1, Storable a1) => Int -> (Ptr a1 -> IO ()) -> IO [M44 a]
 buildM44sWithPtr count action = splitMatrices <$> withArray_ (16 * count) action
   where splitMatrices [] = []
         splitMatrices ms = 
@@ -70,9 +87,6 @@ buildM44sWithPtr count action = splitMatrices <$> withArray_ (16 * count) action
           in m44FromOpenVRList next : splitMatrices remain
 
 C.verbatim [r|
-
-// Missing from 
-inline uint64_t ButtonMaskFromId( EVRButtonId id ) { return 1ull << id; }
 
 void fillFromMatrix44(HmdMatrix44_t matrix, float* out) {
   
@@ -250,8 +264,22 @@ getEyeToHeadTransform (IVRSystem systemPtr) eye = liftIO $ do
 
       fillFromMatrix34(transform, $(float* ptr));
     }|]
-  
 
+showMirrorWindow :: MonadIO m => IVRCompositor -> m ()
+showMirrorWindow (IVRCompositor compositorPtr) = liftIO $ do
+  [C.block|void{
+    intptr_t compositor = $(intptr_t compositorPtr);
+    VR_IVRCompositor_ShowMirrorWindow(compositor);
+  }|]
+
+hideMirrorWindow :: MonadIO m => IVRCompositor -> m ()
+hideMirrorWindow (IVRCompositor compositorPtr) = liftIO $ do
+  [C.block|void{
+    intptr_t compositor = $(intptr_t compositorPtr);
+    VR_IVRCompositor_HideMirrorWindow(compositor);
+  }|]
+
+triggerHapticPulse :: MonadIO m => IVRSystem -> CInt -> CInt -> CUShort -> m ()
 triggerHapticPulse system@(IVRSystem systemPtr) controllerNumber axis duration = liftIO $ do
   deviceIndex <- getDeviceIndexOfController system controllerNumber
   [C.block|void {
@@ -263,7 +291,8 @@ triggerHapticPulse system@(IVRSystem systemPtr) controllerNumber axis duration =
   }|]
 
 -- | Currently just prints out the event
-pollNextEvent system@(IVRSystem systemPtr) = liftIO $ do
+pollNextEvent :: MonadIO m => IVRSystem -> m ()
+pollNextEvent (IVRSystem systemPtr) = liftIO $ do
   [C.block|void {
     intptr_t system = $(intptr_t systemPtr);
 
@@ -280,6 +309,7 @@ pollNextEvent system@(IVRSystem systemPtr) = liftIO $ do
 -- | The controller number here refers to an index into the number of controllers there are,
 -- not the TrackedDevice index. The first controller is always controllerNumber 0,
 -- the second is controllerNumber 1, and so on, regardless of their TrackedDevice indices.
+getControllerState :: MonadIO m => IVRSystem -> CInt -> m (CFloat, CFloat, CFloat, Bool, Bool)
 getControllerState system@(IVRSystem systemPtr) controllerNumber = liftIO $ do
 
   deviceIndex <- getDeviceIndexOfController system controllerNumber
@@ -324,6 +354,7 @@ getControllerState system@(IVRSystem systemPtr) controllerNumber = liftIO $ do
     }|]
   return (x, y, trigger, grip /= 0, start /= 0)
 
+getDeviceIndexOfController :: MonadIO m => IVRSystem -> CInt -> m CInt
 getDeviceIndexOfController (IVRSystem systemPtr) controllerNumber = liftIO $ do
   [C.block|int {
     intptr_t system = $(intptr_t systemPtr);
@@ -352,6 +383,8 @@ waitGetPoses (IVRCompositor compositorPtr) = liftIO $ do
 
 
 -- | Returns the predicted poses of devices of the given class at the next display time
+getDevicePosesOfClass :: (Fractional a, MonadIO m) 
+                      => IVRSystem -> TrackedDeviceClass -> m [M44 a]
 getDevicePosesOfClass system@(IVRSystem systemPtr) trackedDeviceClass = liftIO $ do
   let trackedDeviceClassInt = trackedDeviceClassToC trackedDeviceClass
   count <- getNumDevicesOfClass system trackedDeviceClass
@@ -384,6 +417,8 @@ getDevicePosesOfClass system@(IVRSystem systemPtr) trackedDeviceClass = liftIO $
       }
     }|]
 
+getNumDevicesOfClass :: (Num a, MonadIO m) 
+                     => IVRSystem -> TrackedDeviceClass -> m a
 getNumDevicesOfClass (IVRSystem systemPtr) trackedDeviceClass = liftIO $ do
   let trackedDeviceClassInt = trackedDeviceClassToC trackedDeviceClass
   fromIntegral <$> 
@@ -452,6 +487,7 @@ data OpenVR = OpenVR
   , ovrEyes       :: [EyeInfo]
   }
 
+createOpenVR :: IO (Maybe OpenVR)
 createOpenVR = do
   putStrLn "Starting OpenVR"
   mSystem <- initOpenVR
@@ -462,7 +498,7 @@ createOpenVR = do
       putStrLn $ "Got system: " ++ show system
       (w,h) <- getRenderTargetSize system
       print (w,h)
-      eyes <- forM (zip [0..] [LeftEye, RightEye]) $ \(i, eye) -> do
+      eyes <- forM [LeftEye, RightEye] $ \eye -> do
         eyeProj  <- getEyeProjectionMatrix system eye 0.1 100
         eyeTrans <- safeInv44 <$> getEyeToHeadTransform system eye
 
@@ -481,6 +517,7 @@ createOpenVR = do
       case mCompositor of
         Nothing -> putStrLn "Couldn't create OpenVR compositor :*(" >> return Nothing
         Just compositor -> do
+          showMirrorWindow compositor
           return . Just $ OpenVR
             { ovrSystem = system
             , ovrCompositor = compositor
