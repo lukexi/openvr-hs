@@ -42,7 +42,7 @@ inline uint64_t ButtonMaskFromId( EVRButtonId id ) { return 1ull << id; }
 newtype IVRSystem     = IVRSystem     { unIVRSystem     :: CIntPtr } deriving Show
 newtype IVRCompositor = IVRCompositor { unIVRCompositor :: CIntPtr } deriving Show
 
-data HmdEye = LeftEye | RightEye deriving (Enum)
+data HmdEye = LeftEye | RightEye deriving (Enum, Eq, Show)
 
 data TrackedDeviceClass = TrackedDeviceClassInvalid
                         | TrackedDeviceClassHMD

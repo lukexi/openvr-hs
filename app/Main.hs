@@ -42,6 +42,13 @@ main = do
     Just openVR -> do
       triggerHapticPulse (ovrSystem openVR) 0 0 1000
       triggerHapticPulse (ovrSystem openVR) 1 0 1000
+
+      forM_ (ovrEyes openVR) $ \eye -> case eiEye eye of
+        LeftEye -> do
+          let (_, _, w, h) = eiViewport eye
+          setWindowSize window (fromIntegral w) (fromIntegral h)
+        _ -> return ()
+
       openVRLoop window events cubeShape openVR
     Nothing -> flatLoop window events cubeShape
   
@@ -83,7 +90,7 @@ openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
 
   headPose <- safeInv44 <$> waitGetPoses ovrCompositor
 
-  forM_ ovrEyes $ \EyeInfo{..} -> do
+  forM_ ovrEyes $ \eye@EyeInfo{..} -> do
 
     withFramebuffer eiFramebuffer $ do
       glClear (GL_COLOR_BUFFER_BIT .|. GL_DEPTH_BUFFER_BIT)
@@ -95,9 +102,19 @@ openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
 
       submitFrameForEye ovrCompositor eiEye eiFramebufferTexture
 
+      when (eiEye == LeftEye) $ mirrorEyeToWindow eye window
+
   processEvents events $ closeOnEscape window
 
   swapBuffers window
+
+mirrorEyeToWindow EyeInfo{..} window = do
+  let (x, y, w, h) = eiViewport
+
+  glBindFramebuffer GL_READ_FRAMEBUFFER eiFramebuffer
+  glBindFramebuffer GL_DRAW_FRAMEBUFFER 0
+
+  glBlitFramebuffer x y w h x y w h GL_COLOR_BUFFER_BIT GL_LINEAR
 
 flatLoop :: MonadIO m => Window -> Events -> Shape Uniforms -> m ()
 flatLoop window events cubeShape = do
