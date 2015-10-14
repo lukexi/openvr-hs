@@ -4,6 +4,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
+{-# LANGUAGE RecordWildCards #-}
 module Graphics.VR.OpenVR where
 
 import Foreign
@@ -523,3 +524,13 @@ createOpenVR = do
             , ovrCompositor = compositor
             , ovrEyes = eyes
             }
+
+mirrorOpenVREyeToWindow :: MonadIO m => EyeInfo -> m ()
+mirrorOpenVREyeToWindow EyeInfo{..} = when (eiEye == LeftEye) $ do
+  let (x, y, w, h) = eiViewport
+
+  glBindFramebuffer GL_READ_FRAMEBUFFER eiFramebuffer
+  glBindFramebuffer GL_DRAW_FRAMEBUFFER 0
+
+  glBlitFramebuffer x y w h x y w h GL_COLOR_BUFFER_BIT GL_LINEAR
+  return ()

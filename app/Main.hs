@@ -13,6 +13,14 @@ import Halive.Utils
 import CubeUniforms
 import Cube
 
+data Hand = Hand 
+  { hndGrip :: Bool
+  , hndStart :: Bool
+  , hndTrigger :: GLfloat
+  , hndXY :: V2 GLfloat
+  , hndMatrix :: M44 GLfloat
+  } deriving Show
+
 worldCubes :: [Cube]
 worldCubes = [cubeAt x y z | x <- [-2..2], y <- [-2..2], z <- [-2..2] ]
   where
@@ -55,13 +63,7 @@ main = do
       
   putStrLn "Done!"
 
-data Hand = Hand 
-  { hndGrip :: Bool
-  , hndStart :: Bool
-  , hndTrigger :: GLfloat
-  , hndXY :: V2 GLfloat
-  , hndMatrix :: M44 GLfloat
-  } deriving Show
+
 
 openVRLoop :: Window -> Events -> Shape Uniforms -> OpenVR -> IO ()
 openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
@@ -102,19 +104,13 @@ openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
 
       submitFrameForEye ovrCompositor eiEye eiFramebufferTexture
 
-      when (eiEye == LeftEye) $ mirrorEyeToWindow eye window
+      mirrorOpenVREyeToWindow eye
 
   processEvents events $ closeOnEscape window
 
   swapBuffers window
 
-mirrorEyeToWindow EyeInfo{..} window = do
-  let (x, y, w, h) = eiViewport
 
-  glBindFramebuffer GL_READ_FRAMEBUFFER eiFramebuffer
-  glBindFramebuffer GL_DRAW_FRAMEBUFFER 0
-
-  glBlitFramebuffer x y w h x y w h GL_COLOR_BUFFER_BIT GL_LINEAR
 
 flatLoop :: MonadIO m => Window -> Events -> Shape Uniforms -> m ()
 flatLoop window events cubeShape = do
@@ -144,7 +140,7 @@ render :: (MonadIO m)
 render cubeShape projection viewMat cubes = do
   let Uniforms{..} = sUniforms cubeShape
       projectionView = projection !*! viewMat
-      -- We extract eyePos from the view matrix to get Oculus offsets baked in
+      -- We extract eyePos from the view matrix to get eye-to-head offsets baked in
       eyePos = safeInv44 viewMat ^. translation
 
   uniformV3 uCamera eyePos
