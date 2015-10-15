@@ -79,7 +79,6 @@ openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
           , hndGrip = grip
           , hndStart = start
           }
-    print hand
     return hand
 
   let handCubes = flip map hands $ \hand -> Cube
