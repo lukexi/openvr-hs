@@ -263,6 +263,7 @@ getEyeToHeadTransform (IVRSystem systemPtr) eye = liftIO $ do
       fillFromMatrix34(transform, $(float* ptr));
     }|]
 
+{- -- These work in 9.9.10 only!
 showMirrorWindow :: MonadIO m => IVRCompositor -> m ()
 showMirrorWindow (IVRCompositor compositorPtr) = liftIO $ do
   [C.block|void{
@@ -276,6 +277,7 @@ hideMirrorWindow (IVRCompositor compositorPtr) = liftIO $ do
     intptr_t compositor = $(intptr_t compositorPtr);
     VR_IVRCompositor_HideMirrorWindow(compositor);
   }|]
+-}
 
 triggerHapticPulse :: MonadIO m => IVRSystem -> CInt -> CInt -> CUShort -> m ()
 triggerHapticPulse system@(IVRSystem systemPtr) controllerNumber axis duration = liftIO $ do
@@ -515,7 +517,7 @@ createOpenVR = do
       case mCompositor of
         Nothing -> putStrLn "Couldn't create OpenVR compositor :*(" >> return Nothing
         Just compositor -> do
-          showMirrorWindow compositor
+          -- showMirrorWindow compositor
           return . Just $ OpenVR
             { ovrSystem = system
             , ovrCompositor = compositor
