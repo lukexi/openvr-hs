@@ -151,6 +151,7 @@ float getSecondsToPhotons(intptr_t system) {
   float fPredictedSecondsFromNow = fFrameDuration - fSecondsSinceLastVsync + fVsyncToPhotons;
   return fPredictedSecondsFromNow;
 }
+
 |]
 
 -- | Creates the OpenVR System object, which is the main point of interface with OpenVR.
@@ -162,11 +163,7 @@ initOpenVR = liftIO $ do
     intptr_t system = VR_Init(&error, EVRApplicationType_VRApplication_Scene);
 
     if (system == 0) {
-      char buf[1024];
-      sprintf_s(buf, sizeof(buf), 
-        "Unable to init VR runtime: %s", 
-        VR_GetStringForHmdError(error));
-      printf("initOpenVR error: %s\n", buf);
+      printf("initOpenVR error: %s\n", VR_GetStringForHmdError(error));
     }
 
     return system;

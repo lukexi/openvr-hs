@@ -33,7 +33,7 @@ library
   if os(windows)
     extra-libraries:   libstdc++-6
     extra-lib-dirs:    c:\msys64\usr\local\bin 
-                       C:\msys64\usr\local\ghc\mingw\bin
+                       c:\msys64\usr\local\ghc\mingw\bin
     cc-options:        -fno-exceptions
 
 executable demo
