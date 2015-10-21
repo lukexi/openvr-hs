@@ -276,7 +276,7 @@ isUsingLighthouse (IVRSystem systemPtr) = liftIO $ do
         system, nDevice, 
         TrackedDeviceProperty_Prop_TrackingSystemName_String, 
         trackingSystemName, k_unTrackingStringSize, &error);
-      if (strcmp(trackingSystemName, "lighthouse")) {
+      if (strcmp(trackingSystemName, "lighthouse") == 0) {
         foundLighthouse = 1;
       }
     }
