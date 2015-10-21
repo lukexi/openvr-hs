@@ -24,6 +24,7 @@ C.context (C.cppCtx <> C.funCtx)
 -- Import OpenVR
 C.include "openvr_capi.h"
 C.include "stdio.h"
+C.include "string.h"
 
 -- Add the VREvent_t type and ButtonMaskFromId method
 -- from openvr.h, which are missing from openvr_capi.h
@@ -262,6 +263,27 @@ getEyeToHeadTransform (IVRSystem systemPtr) eye = liftIO $ do
 
       fillFromMatrix34(transform, $(float* ptr));
     }|]
+
+isUsingLighthouse :: MonadIO m => IVRSystem -> m Bool
+isUsingLighthouse (IVRSystem systemPtr) = liftIO $ do
+  foundLighthouse <- [C.block|int {
+    intptr_t system = $(intptr_t systemPtr);
+    bool foundLighthouse = 0;
+    for (int nDevice = 0; nDevice < k_unMaxTrackedDeviceCount; nDevice++) {
+      char trackingSystemName[k_unTrackingStringSize];
+      TrackedPropertyError error;
+      VR_IVRSystem_GetStringTrackedDeviceProperty(
+        system, nDevice, 
+        TrackedDeviceProperty_Prop_TrackingSystemName_String, 
+        trackingSystemName, k_unTrackingStringSize, &error);
+      if (strcmp(trackingSystemName, "lighthouse")) {
+        foundLighthouse = 1;
+      }
+    }
+    return foundLighthouse;
+    }|]
+  return (foundLighthouse == 1)
+  
 
 {- -- These work in 9.9.10 only!
 showMirrorWindow :: MonadIO m => IVRCompositor -> m ()
