@@ -495,9 +495,8 @@ createOpenVR = do
   case mSystem of
     Nothing -> putStrLn "Couldn't create OpenVR system :*(" >> return Nothing
     Just system -> do
-      putStrLn $ "Got system: " ++ show system
+      -- putStrLn $ "Got system: " ++ show system
       (w,h) <- getRenderTargetSize system
-      print (w,h)
       eyes <- forM [LeftEye, RightEye] $ \eye -> do
         eyeProj  <- getEyeProjectionMatrix system eye 0.1 100
         eyeTrans <- safeInv44 <$> getEyeToHeadTransform system eye
