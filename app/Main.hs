@@ -114,7 +114,8 @@ openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
 flatLoop :: MonadIO m => Window -> Events -> Shape Uniforms -> m ()
 flatLoop window events cubeShape = do
   let viewMat = lookAt (V3 0 2 0) (V3 0 0 3) (V3 0 1 0)
-      projectionMat = perspective 45 (1024/768) 0.1 1000
+  projectionMat <- getWindowProjection window 45 0.1 1000
+  (x,y,w,h)     <- getWindowViewport window
   whileWindow window $ do
     processEvents events (closeOnEscape window)
 
@@ -123,7 +124,7 @@ flatLoop window events cubeShape = do
 
     glClear (GL_COLOR_BUFFER_BIT .|. GL_DEPTH_BUFFER_BIT)
 
-    glViewport 0 0 1024 768
+    glViewport x y w h
 
     render cubeShape projectionMat viewMat worldCubes
 
@@ -147,10 +148,10 @@ render cubeShape projection viewMat cubes = do
   withVAO (sVAO cubeShape) $ forM_ cubes $ \cube -> do
     uniformV4 uDiffuse (cube ^. cubColor)
 
-    drawShape (cube ^. cubMatrix) projectionView cubeShape
+    draw (cube ^. cubMatrix) projectionView cubeShape
 
-drawShape :: MonadIO m => M44 GLfloat -> M44 GLfloat -> Shape Uniforms -> m ()
-drawShape model projectionView shape = do 
+draw :: MonadIO m => M44 GLfloat -> M44 GLfloat -> Shape Uniforms -> m ()
+draw model projectionView shape = do 
 
   let Uniforms{..} = sUniforms shape
 
@@ -158,7 +159,7 @@ drawShape model projectionView shape = do
   uniformM44 uInverseModel        (fromMaybe model (inv44 model))
   uniformM44 uModel               model
 
-  let vc = vertCount (sGeometry shape)
+  let vc = geoVertCount (sGeometry shape)
   glDrawElements GL_TRIANGLES vc GL_UNSIGNED_INT nullPtr
 
 

@@ -75,7 +75,7 @@ m44FromOpenVRList :: (Fractional a, Real a1) => [a1] -> M44 a
 m44FromOpenVRList = transpose . m44FromList . map realToFrac
 
 -- buildM44WithPtr action = m44FromOpenVRList <$> withArray_ 16 action
-buildM44WithPtr :: (Ptr b -> IO a) -> IO (M44 GLfloat)
+buildM44WithPtr :: (Ptr b -> IO ()) -> IO (M44 GLfloat)
 buildM44WithPtr action = fmap transpose . alloca $ \ptr -> do
   let _ = ptr :: Ptr (M44 GLfloat)
   action (castPtr ptr)

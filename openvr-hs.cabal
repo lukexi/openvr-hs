@@ -36,7 +36,8 @@ library
                        c:\msys64\usr\local\ghc\mingw\bin
     cc-options:        -fno-exceptions
 
-executable demo
+test-suite demo
+  type:                exitcode-stdio-1.0
   hs-source-dirs:      app
   main-is:             Main.hs
   ghc-options:         -O2 -Wall -threaded -rtsopts -with-rtsopts=-N
