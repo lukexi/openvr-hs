@@ -155,6 +155,13 @@ float getSecondsToPhotons(intptr_t system) {
 
 |]
 
+isHMDPresent :: MonadIO m => m Bool
+isHMDPresent = toEnum . fromIntegral <$> liftIO [C.block| int {
+
+  return VR_IsHmdPresent() ? 1 : 0;
+
+  }|]
+
 -- | Creates the OpenVR System object, which is the main point of interface with OpenVR.
 -- Will return Nothing if no headset can be found, or if some other error occurs during initialization.
 initOpenVR :: MonadIO m => m (Maybe IVRSystem)

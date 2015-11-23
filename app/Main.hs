@@ -43,7 +43,9 @@ main = do
   glEnable GL_DEPTH_TEST
   useProgram (sProgram cubeShape)
 
-  mOpenVR <- reacquire 1 $ createOpenVR
+  mOpenVR <- reacquire 1 $ do
+    hmdPresent <- isHMDPresent
+    if hmdPresent then createOpenVR else return Nothing
   -- let mOpenVR = Nothing
   
   case mOpenVR of 

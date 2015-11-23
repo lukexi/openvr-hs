@@ -1,7 +1,7 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 module CubeUniforms where
 import Graphics.GL.Pal
-import Data.Data
+
 data Uniforms = Uniforms
   { uModelViewProjection :: UniformLocation (M44 GLfloat)
   , uInverseModel        :: UniformLocation (M44 GLfloat)
