@@ -20,6 +20,6 @@ git clone git@github.com:lukexi/halive.git
 The build system expects a 64bit [MSYS2](https://msys2.github.io) installation.
 
 Note: you may also need this version of GHC until 7.10.3 comes out to fix a small linker bug.
-https://github.com/lukexi/ghc/releases/download/ghc-7.10.2-release-plus-rework-windows-pe-linker/ghc-7.10.2-x86_64-unknown-mingw32-windows-linker-fixes.tar.bz2
+https://github.com/lukexi/ghc/releases/download/ghc-7.10.3-rc2-plus-export-symbols/ghc-7.10.2.20151117-x86_64-unknown-mingw32.tar.bz2
 
 Feel free to contact me via the issues tab or [@lukexi](http://twitter.com/lukexi) if you need any help getting set up.
