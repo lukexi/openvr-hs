@@ -32,8 +32,8 @@ library
   cc-options: -O2
   if os(windows)
     extra-libraries:   libstdc++-6
+    -- We store openvr_api.dll in /usr/local/bin
     extra-lib-dirs:    c:\msys64\usr\local\bin 
-                       c:\msys64\usr\local\ghc\mingw\bin
     cc-options:        -fno-exceptions
 
 test-suite demo
