@@ -292,7 +292,6 @@ isUsingLighthouse (IVRSystem systemPtr) = liftIO $ do
   return (foundLighthouse == 1)
   
 
-{- -- These work in 9.9.10 only!
 showMirrorWindow :: MonadIO m => IVRCompositor -> m ()
 showMirrorWindow (IVRCompositor compositorPtr) = liftIO $ do
   [C.block|void{
@@ -306,7 +305,7 @@ hideMirrorWindow (IVRCompositor compositorPtr) = liftIO $ do
     intptr_t compositor = $(intptr_t compositorPtr);
     VR_IVRCompositor_HideMirrorWindow(compositor);
   }|]
--}
+
 
 triggerHapticPulse :: MonadIO m => IVRSystem -> CInt -> CInt -> CUShort -> m ()
 triggerHapticPulse system@(IVRSystem systemPtr) controllerNumber axis duration = liftIO $ do
