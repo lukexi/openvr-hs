@@ -10,7 +10,8 @@ module Graphics.VR.OpenVR where
 import Foreign
 -- import Foreign.Ptr
 import Foreign.C
-import qualified Language.C.Inline.Cpp as C
+-- import qualified Language.C.Inline.Cpp as C
+import qualified Language.C.Inline as C
 import Control.Monad.Trans
 import Data.Monoid
 import Linear.Extra
@@ -19,27 +20,13 @@ import Graphics.GL.Pal
 import Control.Monad
 
 -- Set up inline-c to gain Cpp and Function Pointer abilities
-C.context (C.cppCtx <> C.funCtx)
+-- C.context (C.cppCtx <> C.funCtx)
+C.context (C.baseCtx <> C.funCtx)
 
 -- Import OpenVR
 C.include "openvr_capi.h"
 C.include "stdio.h"
 C.include "string.h"
-
--- Add the VREvent_t type and ButtonMaskFromId method
--- from openvr.h, which are missing from openvr_capi.h
-C.verbatim [r|
-/** An event posted by the server to all running applications */
-struct VREvent_t
-{
-  EVREventType eventType;
-  TrackedDeviceIndex_t trackedDeviceIndex;
-  VREvent_Data_t data;
-  float eventAgeSeconds;
-};
-
-inline uint64_t ButtonMaskFromId( EVRButtonId id ) { return 1ull << id; }
-|]
 
 newtype IVRSystem     = IVRSystem     { unIVRSystem     :: CIntPtr } deriving Show
 newtype IVRCompositor = IVRCompositor { unIVRCompositor :: CIntPtr } deriving Show
@@ -56,11 +43,11 @@ maxTrackedDeviceCount :: Num b => b
 maxTrackedDeviceCount = fromIntegral [C.pure|int{k_unMaxTrackedDeviceCount}|]
 
 trackedDeviceClassToC :: TrackedDeviceClass -> CInt
-trackedDeviceClassToC TrackedDeviceClassInvalid           = [C.pure|int{TrackedDeviceClass_Invalid}|]
-trackedDeviceClassToC TrackedDeviceClassHMD               = [C.pure|int{TrackedDeviceClass_HMD}|]
-trackedDeviceClassToC TrackedDeviceClassController        = [C.pure|int{TrackedDeviceClass_Controller}|]
-trackedDeviceClassToC TrackedDeviceClassTrackingReference = [C.pure|int{TrackedDeviceClass_TrackingReference}|]
-trackedDeviceClassToC TrackedDeviceClassOther             = [C.pure|int{TrackedDeviceClass_Other}|]
+trackedDeviceClassToC TrackedDeviceClassInvalid           = [C.pure|int{ETrackedDeviceClass_TrackedDeviceClass_Invalid}|]
+trackedDeviceClassToC TrackedDeviceClassHMD               = [C.pure|int{ETrackedDeviceClass_TrackedDeviceClass_HMD}|]
+trackedDeviceClassToC TrackedDeviceClassController        = [C.pure|int{ETrackedDeviceClass_TrackedDeviceClass_Controller}|]
+trackedDeviceClassToC TrackedDeviceClassTrackingReference = [C.pure|int{ETrackedDeviceClass_TrackedDeviceClass_TrackingReference}|]
+trackedDeviceClassToC TrackedDeviceClassOther             = [C.pure|int{ETrackedDeviceClass_TrackedDeviceClass_Other}|]
 
 -- | Temporarily allocate an array of the given size, 
 -- pass it to a foreign function, then peek it before it is discarded
@@ -138,7 +125,7 @@ float getSecondsToPhotons(intptr_t system) {
   float fDisplayFrequency = VR_IVRSystem_GetFloatTrackedDeviceProperty(
     system,
     k_unTrackedDeviceIndex_Hmd, 
-    TrackedDeviceProperty_Prop_DisplayFrequency_Float, 
+    ETrackedDeviceProperty_Prop_DisplayFrequency_Float, 
     NULL);
   
   float fFrameDuration = 1.f / fDisplayFrequency;
@@ -146,7 +133,7 @@ float getSecondsToPhotons(intptr_t system) {
   float fVsyncToPhotons = VR_IVRSystem_GetFloatTrackedDeviceProperty(
     system,
     k_unTrackedDeviceIndex_Hmd, 
-    TrackedDeviceProperty_Prop_SecondsFromVsyncToPhotons_Float,
+    ETrackedDeviceProperty_Prop_DisplayFrequency_Float,
     NULL);
 
   float fPredictedSecondsFromNow = fFrameDuration - fSecondsSinceLastVsync + fVsyncToPhotons;
@@ -167,11 +154,11 @@ isHMDPresent = toEnum . fromIntegral <$> liftIO [C.block| int {
 initOpenVR :: MonadIO m => m (Maybe IVRSystem)
 initOpenVR = liftIO $ do
   systemPtr <- [C.block| intptr_t {
-    HmdError error = HmdError_None;
-    intptr_t system = VR_Init(&error, EVRApplicationType_VRApplication_Scene);
+    EVRInitError err = EVRInitError_VRInitError_None;
+    intptr_t system = VR_Init(&err, EVRApplicationType_VRApplication_Scene);
 
     if (system == 0) {
-      printf("initOpenVR error: %s\n", VR_GetStringForHmdError(error));
+      printf("initOpenVR error: %s\n", VR_GetStringForHmdError(err));
     }
 
     return system;
@@ -183,22 +170,14 @@ initOpenVR = liftIO $ do
 getCompositor :: MonadIO m => m (Maybe IVRCompositor) 
 getCompositor = liftIO $ do
   compositorPtr <- [C.block| intptr_t {
-    HmdError error = HmdError_None;
+    EVRInitError error = EVRInitError_VRInitError_None;
 
     intptr_t compositor = VR_GetGenericInterface(IVRCompositor_Version, &error);
 
-    if (error != HmdError_None) {
+    if (error != EVRInitError_VRInitError_None) {
       compositor = 0;
 
       printf("Compositor initialization failed with error: %s\n", VR_GetStringForHmdError(error));
-      return 0;
-    }
-
-    uint32_t unSize = VR_IVRCompositor_GetLastError(compositor, NULL, 0);
-    if (unSize > 1) {
-      char buffer[unSize];
-      VR_IVRCompositor_GetLastError(compositor, buffer, unSize);
-      printf( "Compositor - %s\n", buffer );
       return 0;
     }
 
@@ -221,24 +200,6 @@ getRenderTargetSize (IVRSystem systemPtr) = liftIO $ do
   return (fromIntegral w, fromIntegral h)
 
 
-
--- | Returns the viewport to give to glViewport when rendering the given eye.
--- NOTE this doesn't seem to return the correct values for the Oculus 
--- (it returns 1080p rather than the upscaled values for the render buffer)
-getEyeViewport :: Integral a => MonadIO m => IVRSystem -> HmdEye -> m (a, a, a, a)
-getEyeViewport (IVRSystem systemPtr) eye = liftIO $ do
-  let eyeNum = fromIntegral $ fromEnum eye
-  (x, y, w, h) <- C.withPtrs_ $ \(xPtr, yPtr, wPtr, hPtr) -> 
-    [C.block| void {
-      intptr_t system = $(intptr_t systemPtr);
-      Hmd_Eye eye = $(int eyeNum) == 0 ? Hmd_Eye_Eye_Left : Hmd_Eye_Eye_Right;
-
-      VR_IVRSystem_GetEyeOutputViewport(system, eye, 
-        $(uint32_t* xPtr), $(uint32_t* yPtr), $(uint32_t* wPtr), $(uint32_t* hPtr));
-    }|]
-  return (fromIntegral x, fromIntegral y, fromIntegral w, fromIntegral h)
-
-
 -- | Returns the projection matrix for the given eye for the given near and far clipping planes.
 getEyeProjectionMatrix :: (MonadIO m) => IVRSystem -> HmdEye -> Float -> Float -> m (M44 GLfloat)
 getEyeProjectionMatrix (IVRSystem systemPtr) eye (realToFrac -> zNear) (realToFrac -> zFar) = liftIO $ do
@@ -247,10 +208,10 @@ getEyeProjectionMatrix (IVRSystem systemPtr) eye (realToFrac -> zNear) (realToFr
     [C.block|void {
       intptr_t system = $(intptr_t systemPtr);
 
-      Hmd_Eye eye = $(int eyeNum) == 0 ? Hmd_Eye_Eye_Left : Hmd_Eye_Eye_Right;
+      EVREye eye = $(int eyeNum) == 0 ? EVREye_Eye_Left : EVREye_Eye_Right;
 
       HmdMatrix44_t projection = VR_IVRSystem_GetProjectionMatrix(system, eye, 
-        $(float zNear), $(float zFar), GraphicsAPIConvention_API_OpenGL);
+        $(float zNear), $(float zFar), EGraphicsAPIConvention_API_OpenGL);
 
       fillFromMatrix44(projection, $(float* ptr));
     }|]
@@ -264,7 +225,7 @@ getEyeToHeadTransform (IVRSystem systemPtr) eye = liftIO $ do
     [C.block|void {
       intptr_t system = $(intptr_t systemPtr);
 
-      Hmd_Eye eye = $(int eyeNum) == 0 ? Hmd_Eye_Eye_Left : Hmd_Eye_Eye_Right;
+      EVREye eye = $(int eyeNum) == 0 ? EVREye_Eye_Left : EVREye_Eye_Right;
 
       HmdMatrix34_t transform = VR_IVRSystem_GetEyeToHeadTransform(system, eye);
 
@@ -278,10 +239,10 @@ isUsingLighthouse (IVRSystem systemPtr) = liftIO $ do
     bool foundLighthouse = 0;
     for (int nDevice = 0; nDevice < k_unMaxTrackedDeviceCount; nDevice++) {
       char trackingSystemName[k_unTrackingStringSize];
-      TrackedPropertyError error;
+      ETrackedPropertyError error;
       VR_IVRSystem_GetStringTrackedDeviceProperty(
         system, nDevice, 
-        TrackedDeviceProperty_Prop_TrackingSystemName_String, 
+        ETrackedDeviceProperty_Prop_TrackingSystemName_String, 
         trackingSystemName, k_unTrackingStringSize, &error);
       if (strcmp(trackingSystemName, "lighthouse") == 0) {
         foundLighthouse = 1;
@@ -307,6 +268,33 @@ hideMirrorWindow (IVRCompositor compositorPtr) = liftIO $ do
   }|]
 
 
+showKeyboard :: MonadIO m => IVRCompositor -> m ()
+showKeyboard (IVRCompositor compositorPtr) = liftIO $ do
+  [C.block|void{
+    intptr_t compositor = $(intptr_t compositorPtr);
+    const char * pchDescription = "";
+    const char * pchExistingText = "";
+    uint32_t unCharMax = 0;
+    bool bUseMinimalMode = 1;
+    uint64_t uUserValue = 0;
+    VR_IVROverlay_ShowKeyboard(compositor, 
+      EGamepadTextInputMode_k_EGamepadTextInputModeNormal, 
+      EGamepadTextInputLineMode_k_EGamepadTextInputLineModeSingleLine, 
+      pchDescription, 
+      unCharMax, 
+      pchExistingText, 
+      bUseMinimalMode, 
+      uUserValue);
+  }|]
+
+hideKeyboard :: MonadIO m => IVRCompositor -> m ()
+hideKeyboard (IVRCompositor compositorPtr) = liftIO $ do
+  [C.block|void{
+    intptr_t compositor = $(intptr_t compositorPtr);
+    VR_IVROverlay_HideKeyboard(compositor);
+  }|]
+
+
 triggerHapticPulse :: MonadIO m => IVRSystem -> CInt -> CInt -> CUShort -> m ()
 triggerHapticPulse system@(IVRSystem systemPtr) controllerNumber axis duration = liftIO $ do
   deviceIndex <- getDeviceIndexOfController system controllerNumber
@@ -328,6 +316,10 @@ pollNextEvent (IVRSystem systemPtr) = liftIO $ do
 
     while (VR_IVRSystem_PollNextEvent(system, &event)) {
       char *eventName = VR_IVRSystem_GetEventTypeNameFromEnum(system, event.eventType);
+
+      if (event.eventType == EVREventType_VREvent_KeyboardCharInput) {
+        printf("Got keyboard character event: %s\n", eventName);
+      }
       printf("Got event type: %s\n", eventName);
     }
 
@@ -389,7 +381,9 @@ getDeviceIndexOfController (IVRSystem systemPtr) controllerNumber = liftIO $ do
     int controllerNumber = $(int controllerNumber);
 
     TrackedDeviceIndex_t deviceIndices[2];
-    uint32_t numIndices = VR_IVRSystem_GetSortedTrackedDeviceIndicesOfClass(system, TrackedDeviceClass_Controller, deviceIndices, 2, 0);
+    uint32_t numIndices = VR_IVRSystem_GetSortedTrackedDeviceIndicesOfClass(system, 
+        ETrackedDeviceClass_TrackedDeviceClass_Controller, 
+        deviceIndices, 2, 0);
     if (numIndices > controllerNumber) {
       return deviceIndices[controllerNumber];
     } else {
@@ -425,7 +419,7 @@ getDevicePosesOfClass system@(IVRSystem systemPtr) trackedDeviceClass = liftIO $
       float secondsToPhotons = getSecondsToPhotons(system);
 
       VR_IVRSystem_GetDeviceToAbsoluteTrackingPose(system, 
-        TrackingUniverseOrigin_TrackingUniverseStanding,
+        ETrackingUniverseOrigin_TrackingUniverseStanding,
         secondsToPhotons,
         trackedDevicePoses,
         k_unMaxTrackedDeviceCount
@@ -480,10 +474,16 @@ submitFrame (IVRCompositor compositorPtr) (fromIntegral -> framebufferTextureID)
     VRTextureBounds_t leftBounds  = {0,   0,   0.5, 1};
     VRTextureBounds_t rightBounds = {0.5, 0,   1,   1};
 
-    VR_IVRCompositor_Submit(compositor, Hmd_Eye_Eye_Left,  GraphicsAPIConvention_API_OpenGL, 
-      (void*)$(unsigned int framebufferTextureID), &leftBounds, VRSubmitFlags_t_Submit_Default);
-    VR_IVRCompositor_Submit(compositor, Hmd_Eye_Eye_Right, GraphicsAPIConvention_API_OpenGL, 
-      (void*)$(unsigned int framebufferTextureID), &rightBounds, VRSubmitFlags_t_Submit_Default);
+    Texture_t texture = { 
+      (void*)$(unsigned int framebufferTextureID), 
+      EGraphicsAPIConvention_API_OpenGL,
+      EColorSpace_ColorSpace_Linear
+    };
+
+    VR_IVRCompositor_Submit(compositor, EVREye_Eye_Left, 
+      &texture, &leftBounds, EVRSubmitFlags_Submit_Default);
+    VR_IVRCompositor_Submit(compositor, EVREye_Eye_Right, 
+      &texture, &rightBounds, EVRSubmitFlags_Submit_Default);
   }|]
 
 -- | Submits a frame for the given eye
@@ -492,10 +492,16 @@ submitFrameForEye (IVRCompositor compositorPtr) eye (fromIntegral -> framebuffer
   let eyeNum = fromIntegral $ fromEnum eye
   [C.block|void {
     intptr_t compositor = $(intptr_t compositorPtr);
-    Hmd_Eye eye = $(int eyeNum) == 0 ? Hmd_Eye_Eye_Left : Hmd_Eye_Eye_Right;
+    EVREye eye = $(int eyeNum) == 0 ? EVREye_Eye_Left : EVREye_Eye_Right;
 
-    VR_IVRCompositor_Submit(compositor, eye,  GraphicsAPIConvention_API_OpenGL, 
-      (void*)$(unsigned int framebufferTextureID), NULL, VRSubmitFlags_t_Submit_Default);
+    Texture_t texture = { 
+      (void*)$(unsigned int framebufferTextureID), 
+      EGraphicsAPIConvention_API_OpenGL,
+      EColorSpace_ColorSpace_Linear
+    };
+
+    VR_IVRCompositor_Submit(compositor, eye, 
+      &texture, NULL, EVRSubmitFlags_Submit_Default);
   }|]
 
 

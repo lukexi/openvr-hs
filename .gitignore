@@ -1,2 +1,3 @@
 .stack-work
 src/Graphics/VR/OpenVR.cpp
+src/Graphics/VR/OpenVR.c

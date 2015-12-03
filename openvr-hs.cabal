@@ -24,12 +24,13 @@ library
                      , gl-pal
                      , raw-strings-qq
   default-language:    Haskell2010
-  include-dirs:        openvr/headers
-  c-sources:           src/Graphics/VR/OpenVR.cpp
+  -- include-dirs:        openvr/headers -- using our modified openvr_capi.h now
+  include-dirs:        .
+  c-sources:           src/Graphics/VR/OpenVR.c
   extra-libraries:     openvr_api
   ghc-options:         -Wall -O2
   ghc-prof-options:    -Wall -O2 -fprof-auto
-  cc-options: -O2
+  cc-options:          -O2
   if os(windows)
     extra-libraries:   libstdc++-6
     -- We store openvr_api.dll in /usr/local/bin
