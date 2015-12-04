@@ -533,7 +533,7 @@ createOpenVR = do
       (w,h) <- getRenderTargetSize system
       eyes <- forM [LeftEye, RightEye] $ \eye -> do
         eyeProj  <- getEyeProjectionMatrix system eye 0.1 100
-        eyeTrans <- safeInv44 <$> getEyeToHeadTransform system eye
+        eyeTrans <- inv44 <$> getEyeToHeadTransform system eye
 
         (framebuffer, framebufferTexture) <- createFramebuffer (fromIntegral w) (fromIntegral h)
 

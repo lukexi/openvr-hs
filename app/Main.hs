@@ -91,7 +91,7 @@ openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
   now <- (/ 2) . (+ 1) . sin . realToFrac . utctDayTime <$> liftIO getCurrentTime
   glClearColor 0.2 0.1 (now * 0.3) 1
 
-  headPose <- safeInv44 <$> waitGetPoses ovrCompositor
+  headPose <- inv44 <$> waitGetPoses ovrCompositor
 
   forM_ ovrEyes $ \eye@EyeInfo{..} -> do
 
@@ -143,7 +143,7 @@ render cubeShape projection viewMat cubes = do
   let Uniforms{..} = sUniforms cubeShape
       projectionView = projection !*! viewMat
       -- We extract eyePos from the view matrix to get eye-to-head offsets baked in
-      eyePos = safeInv44 viewMat ^. translation
+      eyePos = inv44 viewMat ^. translation
 
   uniformV3 uCamera eyePos
 
