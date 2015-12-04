@@ -8,9 +8,7 @@
 module Graphics.VR.OpenVR where
 
 import Foreign
--- import Foreign.Ptr
 import Foreign.C
--- import qualified Language.C.Inline.Cpp as C
 import qualified Language.C.Inline as C
 import Control.Monad.Trans
 import Data.Monoid
@@ -20,7 +18,6 @@ import Graphics.GL.Pal
 import Control.Monad
 
 -- Set up inline-c to gain Cpp and Function Pointer abilities
--- C.context (C.cppCtx <> C.funCtx)
 C.context (C.baseCtx <> C.funCtx)
 
 -- Import OpenVR
@@ -477,7 +474,7 @@ submitFrame (IVRCompositor compositorPtr) (fromIntegral -> framebufferTextureID)
     Texture_t texture = { 
       (void*)$(unsigned int framebufferTextureID), 
       EGraphicsAPIConvention_API_OpenGL,
-      EColorSpace_ColorSpace_Linear
+      EColorSpace_ColorSpace_Auto
     };
 
     VR_IVRCompositor_Submit(compositor, EVREye_Eye_Left, 

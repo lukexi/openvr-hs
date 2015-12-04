@@ -7,7 +7,6 @@ import Graphics.UI.GLFW.Pal
 import Data.Time
 import Control.Monad.Trans
 import Control.Lens.Extra
-import Data.Maybe
 import Control.Monad
 import Halive.Utils
 import CubeUniforms
@@ -158,7 +157,7 @@ draw model projectionView shape = do
   let Uniforms{..} = sUniforms shape
 
   uniformM44 uModelViewProjection (projectionView !*! model)
-  uniformM44 uInverseModel        (fromMaybe model (inv44 model))
+  uniformM44 uInverseModel        (inv44 model)
   uniformM44 uModel               model
 
   let vc = geoVertCount (sGeometry shape)
