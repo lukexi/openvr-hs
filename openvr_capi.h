@@ -1162,7 +1162,7 @@ S_API uint32_t VR_IVRControlPanel_GetDriverDisplaySerialNumber(intptr_t instance
 S_API uint32_t VR_IVRControlPanel_LoadSharedResource(intptr_t instancePtr, const char * pchResourceName, char * pchBuffer, uint32_t unBufferLen);
 S_API float VR_IVRControlPanel_GetIPD(intptr_t instancePtr);
 S_API void VR_IVRControlPanel_SetIPD(intptr_t instancePtr, float fIPD);
-// S_API IVRCompositor * VR_IVRControlPanel_GetCurrentCompositorInterface(intptr_t instancePtr, const char * pchInterfaceVersion);
+// S_API class IVRCompositor * VR_IVRControlPanel_GetCurrentCompositorInterface(intptr_t instancePtr, const char * pchInterfaceVersion);
 S_API bool VR_IVRControlPanel_QuitProcess(intptr_t instancePtr, uint32_t pidProcessToQuit);
 S_API uint32_t VR_IVRControlPanel_StartVRProcess(intptr_t instancePtr, const char * pchExecutable, const char ** pchArguments, uint32_t unArgumentCount, const char * pchWorkingDirectory);
 S_API void VR_IVRControlPanel_SetMasterProcessToThis(intptr_t instancePtr);
