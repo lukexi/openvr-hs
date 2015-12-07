@@ -1,16 +1,25 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE FlexibleContexts #-}
 module Main where
 
 import Graphics.VR.OpenVR
 import Graphics.GL.Pal
 import Graphics.UI.GLFW.Pal
 import Data.Time
-import Control.Monad.Trans
+import Control.Monad.State
 import Control.Lens.Extra
-import Control.Monad
 import Halive.Utils
 import CubeUniforms
 import Cube
+
+data World = World
+  { wldKeyboardShowing :: Bool
+  }
+
+newWorld :: World
+newWorld = World 
+  { wldKeyboardShowing = False
+  }
 
 data Hand = Hand 
   { hndGrip :: Bool
@@ -47,10 +56,8 @@ main = do
     if hmdPresent then createOpenVR else return Nothing
   -- let mOpenVR = Nothing
   
-  case mOpenVR of 
+  _ <- flip runStateT newWorld $ case mOpenVR of 
     Just openVR -> do
-      triggerHapticPulse (ovrSystem openVR) 0 0 1000
-      triggerHapticPulse (ovrSystem openVR) 1 0 1000
 
       forM_ (ovrEyes openVR) $ \eye -> case eiEye eye of
         LeftEye -> do
@@ -66,7 +73,7 @@ main = do
 
 
 
-openVRLoop :: Window -> Events -> Shape Uniforms -> OpenVR -> IO ()
+openVRLoop :: (MonadState World m, MonadIO m) => Window -> Events -> Shape Uniforms -> OpenVR -> m ()
 openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
   pollNextEvent ovrSystem
   poses <- getDevicePosesOfClass ovrSystem TrackedDeviceClassController
@@ -80,6 +87,17 @@ openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
           , hndGrip = grip
           , hndStart = start
           }
+    when (trigger > 0.5) $
+      triggerHapticPulse ovrSystem i 0 100
+
+    when (i == 0) $ do
+      keyboardShowing <- gets wldKeyboardShowing
+      when (grip && not keyboardShowing) $ do
+        showKeyboard
+        modify (\world -> world { wldKeyboardShowing = True })
+      
+      when (not grip) $
+        modify (\world -> world { wldKeyboardShowing = False })
     return hand
 
   let handCubes = flip concatMap hands $ \Hand{..} -> 
@@ -130,7 +148,7 @@ openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
 
 
 
-flatLoop :: MonadIO m => Window -> Events -> Shape Uniforms -> m ()
+flatLoop :: (MonadState World m, MonadIO m) => Window -> Events -> Shape Uniforms -> m ()
 flatLoop window events cubeShape = do
   let viewMat = lookAt (V3 0 2 0) (V3 0 0 3) (V3 0 1 0)
   projectionMat <- getWindowProjection window 45 0.1 1000

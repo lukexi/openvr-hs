@@ -155,7 +155,7 @@ initOpenVR = liftIO $ do
     intptr_t system = VR_Init(&err, EVRApplicationType_VRApplication_Scene);
 
     if (system == 0) {
-      printf("initOpenVR error: %s\n", VR_GetStringForHmdError(err));
+      printf("initOpenVR error: %s\n", VR_GetVRInitErrorAsEnglishDescription(err));
     }
 
     return system;
@@ -174,7 +174,7 @@ getCompositor = liftIO $ do
     if (error != EVRInitError_VRInitError_None) {
       compositor = 0;
 
-      printf("Compositor initialization failed with error: %s\n", VR_GetStringForHmdError(error));
+      printf("Compositor initialization failed with error: %s\n", VR_GetVRInitErrorAsEnglishDescription(error));
       return 0;
     }
 
@@ -265,16 +265,25 @@ hideMirrorWindow (IVRCompositor compositorPtr) = liftIO $ do
   }|]
 
 
-showKeyboard :: MonadIO m => IVRCompositor -> m ()
-showKeyboard (IVRCompositor compositorPtr) = liftIO $ do
+showKeyboard :: MonadIO m => m ()
+showKeyboard = liftIO $ do
   [C.block|void{
-    intptr_t compositor = $(intptr_t compositorPtr);
-    const char * pchDescription = "";
+    EVROverlayError err;
+    VROverlayHandle_t overlayHandle;
+    printf("Overlay: %lli ", VROverlay());
+    err = VR_IVROverlay_CreateOverlay(VROverlay(), "myOverlayKey", "My Friendly Overlay", &overlayHandle);
+    printf("Overlay error: %s\n", VR_IVROverlay_GetOverlayErrorNameFromEnum(VROverlay(), err));
+    VR_IVROverlay_SetOverlayFromFile(VROverlay(), overlayHandle, "C:\\Users\\lukex_000\\Pictures\\Raptor.jpg");
+    printf("Overlay error: %s\n", VR_IVROverlay_GetOverlayErrorNameFromEnum(VROverlay(), err));
+    err = VR_IVROverlay_ShowOverlay(VROverlay(), overlayHandle);
+    printf("Overlay error: %s\n", VR_IVROverlay_GetOverlayErrorNameFromEnum(VROverlay(), err));
+    const char * pchDescription = "MyDescription";
     const char * pchExistingText = "";
-    uint32_t unCharMax = 0;
+    uint32_t unCharMax = 256;
     bool bUseMinimalMode = 1;
     uint64_t uUserValue = 0;
-    VR_IVROverlay_ShowKeyboard(compositor, 
+    err = VR_IVROverlay_ShowKeyboard(VROverlay(), 
+    // err = VR_IVROverlay_ShowKeyboardForOverlay(VROverlay(), overlayHandle,
       EGamepadTextInputMode_k_EGamepadTextInputModeNormal, 
       EGamepadTextInputLineMode_k_EGamepadTextInputLineModeSingleLine, 
       pchDescription, 
@@ -282,13 +291,13 @@ showKeyboard (IVRCompositor compositorPtr) = liftIO $ do
       pchExistingText, 
       bUseMinimalMode, 
       uUserValue);
+    printf("Overlay error: %s\n", VR_IVROverlay_GetOverlayErrorNameFromEnum(VROverlay(), err));
   }|]
 
-hideKeyboard :: MonadIO m => IVRCompositor -> m ()
-hideKeyboard (IVRCompositor compositorPtr) = liftIO $ do
+hideKeyboard :: MonadIO m => m ()
+hideKeyboard = liftIO $ do
   [C.block|void{
-    intptr_t compositor = $(intptr_t compositorPtr);
-    VR_IVROverlay_HideKeyboard(compositor);
+    VR_IVROverlay_HideKeyboard(VROverlay());
   }|]
 
 
@@ -346,7 +355,7 @@ getControllerState system@(IVRSystem systemPtr) controllerNumber = liftIO $ do
       //     state.rAxis[nAxis].y);
       // }
       // 
-      
+
       // printf("%i Touched: %i\n", nDevice, state.ulButtonTouched);
       // printf("%i Pressed: %i\n", nDevice, state.ulButtonPressed);
       
@@ -362,7 +371,6 @@ getControllerState system@(IVRSystem systemPtr) controllerNumber = liftIO $ do
                             == gripMask;
       *$(int* startPtr)   = (state.ulButtonPressed & menuMask) 
                             == menuMask;
-      
     }|]
   return (x, y, trigger, grip /= 0, start /= 0)
 

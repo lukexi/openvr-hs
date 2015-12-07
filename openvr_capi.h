@@ -1205,9 +1205,44 @@ S_API bool VR_IVRTrackedCamera_GetCameraProjection(intptr_t instancePtr, Tracked
 S_API intptr_t VR_Init( EVRInitError *peError, EVRApplicationType eType );
 S_API void VR_Shutdown();
 S_API bool VR_IsHmdPresent();
-S_API const char *VR_GetStringForHmdError( EVRInitError error );
 S_API intptr_t VR_GetGenericInterface( const char *pchInterfaceVersion, EVRInitError *peError );
 S_API bool VR_IsRuntimeInstalled();
+
+/** Returns the name of the enum value for an EVRInitError. This function may be called outside of VR_Init()/VR_Shutdown(). */
+S_API const char * VR_GetVRInitErrorAsSymbol( EVRInitError error );
+
+/** Returns an english string for an EVRInitError. Applications should call VR_GetVRInitErrorAsSymbol instead and 
+* use that as a key to look up their own localized error message. This function may be called outside of VR_Init()/VR_Shutdown(). */
+S_API const char * VR_GetVRInitErrorAsEnglishDescription( EVRInitError error );
+
+/** Returns the current IVRSystem pointer or NULL if VR_Init has not been called successfully */
+S_API intptr_t VRSystem();
+
+/** Returns the current IVRChaperone pointer or NULL the interface could not be found. */
+S_API intptr_t VRChaperone();
+
+/** Returns the current IVRChaperoneSetup pointer or NULL the interface could not be found. */
+S_API intptr_t VRChaperoneSetup();
+
+/** Returns the current IVRCompositor pointer or NULL the interface could not be found. */
+S_API intptr_t VRCompositor();
+
+/** Returns the current IVROverlay pointer or NULL the interface could not be found. */
+S_API intptr_t VROverlay();
+
+/** Returns the current IVRRenderModels pointer or NULL the interface could not be found. */
+S_API intptr_t VRRenderModels();
+
+/** Returns the current IVRControlPanel pointer or NULL the interface could not be found. */
+S_API intptr_t VRControlPanel();
+
+/** Returns the current IVRTrackedCamera pointer or NULL the interface could not be found. */
+S_API intptr_t VRTrackedCamera();
+
+/** Returns the current IVRExtendedDisplay pointer or NULL the interface could not be found. 
+* This function will also return NULL if the VR Compositor is running as the extended display
+* interface is incompatible with the compositor. */
+S_API intptr_t VRExtendedDisplay();
 
 #endif // __OPENVR_API_FLAT_H__
 
