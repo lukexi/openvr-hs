@@ -338,34 +338,29 @@ getControllerState system@(IVRSystem systemPtr) controllerNumber = liftIO $ do
       VRControllerState_t state;
       VR_IVRSystem_GetControllerState(system, nDevice, &state);     
       
+      // for (int nAxis; nAxis < k_unControllerStateAxisCount; nAxis++) {
+      //   printf("%i Axis %i: %f \t%f\n", 
+      //     nDevice,
+      //     nAxis, 
+      //     state.rAxis[nAxis].x, 
+      //     state.rAxis[nAxis].y);
+      // }
+      // 
+      
+      // printf("%i Touched: %i\n", nDevice, state.ulButtonTouched);
+      // printf("%i Pressed: %i\n", nDevice, state.ulButtonPressed);
+      
+      *$(float* xPtr) = state.rAxis[0].x;
+      *$(float* yPtr) = state.rAxis[0].y;
 
-      /*
-      for (int nAxis; nAxis < k_unControllerStateAxisCount; nAxis++) {
-        printf("%i Axis %i: %f \t%f\n", 
-          nDevice,
-          nAxis, 
-          state.rAxis[nAxis].x, 
-          state.rAxis[nAxis].y);
-      }
-
-      printf("%i Touched: %i\n", nDevice, state.ulButtonTouched);
-      printf("%i Pressed: %i\n", nDevice, state.ulButtonPressed);
-      */
-
-
-      // Yes, this is intentional - the values seem to be offset
-      // such that x is on rAxis[1].y and y is on rAxis[0].x;
-      *$(float* xPtr) = state.rAxis[1].y;
-      *$(float* yPtr) = state.rAxis[2].x;
-
-      *$(float* triggerPtr) = state.rAxis[2].y;
+      *$(float* triggerPtr) = state.rAxis[1].x;
 
       int gripMask = ButtonMaskFromId(EVRButtonId_k_EButton_Grip);
       int menuMask = ButtonMaskFromId(EVRButtonId_k_EButton_ApplicationMenu);
 
-      *$(int* gripPtr)    = (state.ulButtonTouched & gripMask) 
+      *$(int* gripPtr)    = (state.ulButtonPressed & gripMask) 
                             == gripMask;
-      *$(int* startPtr)   = (state.ulButtonTouched & menuMask) 
+      *$(int* startPtr)   = (state.ulButtonPressed & menuMask) 
                             == menuMask;
       
     }|]
@@ -472,7 +467,7 @@ submitFrame (IVRCompositor compositorPtr) (fromIntegral -> framebufferTextureID)
     VRTextureBounds_t rightBounds = {0.5, 0,   1,   1};
 
     Texture_t texture = { 
-      (void*)$(unsigned int framebufferTextureID), 
+      (void*)$(unsigned long long framebufferTextureID), 
       EGraphicsAPIConvention_API_OpenGL,
       EColorSpace_ColorSpace_Auto
     };
@@ -492,7 +487,7 @@ submitFrameForEye (IVRCompositor compositorPtr) eye (fromIntegral -> framebuffer
     EVREye eye = $(int eyeNum) == 0 ? EVREye_Eye_Left : EVREye_Eye_Right;
 
     Texture_t texture = { 
-      (void*)$(unsigned int framebufferTextureID), 
+      (void*)$(unsigned long long framebufferTextureID), 
       EGraphicsAPIConvention_API_OpenGL,
       EColorSpace_ColorSpace_Linear
     };

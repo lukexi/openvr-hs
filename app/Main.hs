@@ -82,10 +82,28 @@ openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
           }
     return hand
 
-  let handCubes = flip map hands $ \hand -> Cube
-        { _cubMatrix = hndMatrix hand
-        , _cubColor = V4 1 0 0 1
-        }
+  let handCubes = flip concatMap hands $ \Hand{..} -> 
+        [ Cube
+          { _cubMatrix = hndMatrix !*! translateMatrix (V3 0 0 0.05) !*! scaleMatrix (V3 0.4 0.4 1.6)
+          , _cubColor = V4 1 0 0 1
+          }
+        , Cube
+          { _cubMatrix = hndMatrix !*! scaleMatrix (V3 0.1 0.1 0.1) !*! translateMatrix (V3 (hndXY ^. _x * 0.5) 0.4 (-hndXY ^. _y) * 0.5)
+          , _cubColor = V4 0 1 0 1
+          }
+        , Cube
+          { _cubMatrix = hndMatrix !*! scaleMatrix (V3 0.1 0.1 0.1) !*! translateMatrix (V3 0 (-hndTrigger - 0.2) 0)
+          , _cubColor = V4 0 0 1 1
+          }
+        , Cube
+          { _cubMatrix = hndMatrix !*! scaleMatrix (V3 0.1 0.1 0.1) !*! translateMatrix (V3 0 0.2 0.4)
+          , _cubColor = if hndStart then V4 1 1 1 1 else V4 0 1 1 1
+          }
+        , Cube
+          { _cubMatrix = hndMatrix !*! scaleMatrix (V3 0.5 0.1 0.1) !*! translateMatrix (V3 0 0 0.5)
+          , _cubColor = if hndGrip then V4 1 1 1 1 else V4 1 1 0 1
+          }
+        ]
   
   now <- (/ 2) . (+ 1) . sin . realToFrac . utctDayTime <$> liftIO getCurrentTime
   glClearColor 0.2 0.1 (now * 0.3) 1
