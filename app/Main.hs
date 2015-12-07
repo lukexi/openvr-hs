@@ -55,7 +55,7 @@ main = do
       forM_ (ovrEyes openVR) $ \eye -> case eiEye eye of
         LeftEye -> do
           let (_, _, w, h) = eiViewport eye
-          setWindowSize window (fromIntegral w) (fromIntegral h)
+          setWindowSize window (fromIntegral w `div` 2) (fromIntegral h `div` 2)
         _ -> return ()
 
       openVRLoop window events cubeShape openVR
