@@ -65,14 +65,13 @@ buildM44WithPtr action = fmap transpose . alloca $ \ptr -> do
   action (castPtr ptr)
   peek ptr
 
-buildM44sWithPtr :: (Fractional a, Real a1, Storable a1) => Int -> (Ptr a1 -> IO ()) -> IO [M44 a]
-buildM44sWithPtr count action = splitMatrices <$> withArray_ (16 * count) action
-  where splitMatrices [] = []
-        splitMatrices ms = 
-          let (next, remain) = splitAt 16 ms
-          in m44FromOpenVRList next : splitMatrices remain
+buildM44sWithPtr :: Int -> (Ptr a -> IO ()) -> IO [M44 GLfloat]
+buildM44sWithPtr count action = fmap transpose <$> withArray_ count (action . castPtr)
 
 C.verbatim [r|
+
+#define g_trackedDevicePosesCount 16
+TrackedDevicePose_t g_trackedDevicePoses[g_trackedDevicePosesCount];
 
 void fillFromMatrix44(HmdMatrix44_t matrix, float* out) {
   
@@ -391,22 +390,51 @@ getDeviceIndexOfController (IVRSystem systemPtr) controllerNumber = liftIO $ do
     }
   }|]
 
-waitGetPoses :: (MonadIO m) => IVRCompositor -> m (M44 GLfloat)
-waitGetPoses (IVRCompositor compositorPtr) = liftIO $ do
-  buildM44WithPtr $ \ptr ->
-    [C.block|void {
+waitGetPoses :: (MonadIO m) => IVRCompositor -> IVRSystem -> m [M44 GLfloat]
+waitGetPoses (IVRCompositor compositorPtr) (IVRSystem systemPtr) = liftIO $ do
+  -- First count how many valid HMD and controller poses exist
+  numPoses <- fromIntegral <$> [C.block|int {
       intptr_t compositor = $(intptr_t compositorPtr);
-      TrackedDevicePose_t hmdPose;
-      VR_IVRCompositor_WaitGetPoses(compositor, &hmdPose, 1, NULL, 0);
+      intptr_t system = $(intptr_t systemPtr);
+      int numPoses = 0;
+      VR_IVRCompositor_WaitGetPoses(compositor, 
+        g_trackedDevicePoses, g_trackedDevicePosesCount, NULL, 0);
+      for (int nDevice = 0; nDevice < g_trackedDevicePosesCount; nDevice++) {
+        TrackedDevicePose_t pose = g_trackedDevicePoses[nDevice];
+        if (pose.bPoseIsValid) {
+          TrackedDeviceClass deviceClass = VR_IVRSystem_GetTrackedDeviceClass(system, nDevice);
+          if (deviceClass == ETrackedDeviceClass_TrackedDeviceClass_HMD ||
+              deviceClass == ETrackedDeviceClass_TrackedDeviceClass_Controller) {
+            numPoses++;
+          }
+        }
+      }
+      return numPoses;
+    }|]
 
-      HmdMatrix34_t transform = hmdPose.mDeviceToAbsoluteTracking;
-      fillFromMatrix34(transform, $(float* ptr));
+  -- Then fill our coffers with them
+  buildM44sWithPtr numPoses $ \ptr -> 
+    [C.block|void {
+      intptr_t system = $(intptr_t systemPtr);
+      int offset = 0;
+      for (int nDevice = 0; nDevice < g_trackedDevicePosesCount; nDevice++) {
+        TrackedDevicePose_t pose = g_trackedDevicePoses[nDevice];
+        if (pose.bPoseIsValid) {
+          TrackedDeviceClass deviceClass = VR_IVRSystem_GetTrackedDeviceClass(system, nDevice);
+          if (deviceClass == ETrackedDeviceClass_TrackedDeviceClass_HMD ||
+              deviceClass == ETrackedDeviceClass_TrackedDeviceClass_Controller) {
+            HmdMatrix34_t transform = pose.mDeviceToAbsoluteTracking;
+            fillFromMatrix34(transform, $(float* ptr) + 16 * offset);
+            offset++;
+          }
+        }
+      }
     }|]
 
 
 -- | Returns the predicted poses of devices of the given class at the next display time
-getDevicePosesOfClass :: (Fractional a, MonadIO m) 
-                      => IVRSystem -> TrackedDeviceClass -> m [M44 a]
+getDevicePosesOfClass :: (MonadIO m) 
+                      => IVRSystem -> TrackedDeviceClass -> m [M44 GLfloat]
 getDevicePosesOfClass system@(IVRSystem systemPtr) trackedDeviceClass = liftIO $ do
   let trackedDeviceClassInt = trackedDeviceClassToC trackedDeviceClass
   count <- getNumDevicesOfClass system trackedDeviceClass

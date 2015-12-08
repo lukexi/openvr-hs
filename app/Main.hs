@@ -76,9 +76,14 @@ main = do
 openVRLoop :: (MonadState World m, MonadIO m) => Window -> Events -> Shape Uniforms -> OpenVR -> m ()
 openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
   pollNextEvent ovrSystem
-  poses <- getDevicePosesOfClass ovrSystem TrackedDeviceClassController
+  poses <- waitGetPoses ovrCompositor ovrSystem
+  let (headPose, handPoses) = case poses of
+        [headPose] -> (headPose, [])
+        [headPose, onePose] -> (headPose, [onePose])
+        [headPose, leftPose, rightPose] -> (headPose, [leftPose, rightPose])
+        _ -> (identity, [])
 
-  hands <- forM (zip [0..] poses) $ \(i, pose) -> do
+  hands <- forM (zip [0..] handPoses) $ \(i, pose) -> do
     (x, y, trigger, grip, start) <- getControllerState ovrSystem i
     let hand = Hand
           { hndMatrix = pose
@@ -126,14 +131,13 @@ openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
   now <- (/ 2) . (+ 1) . sin . realToFrac . utctDayTime <$> liftIO getCurrentTime
   glClearColor 0.2 0.1 (now * 0.3) 1
 
-  headPose <- inv44 <$> waitGetPoses ovrCompositor
-
+  let view44 = inv44 headPose
   forM_ ovrEyes $ \eye@EyeInfo{..} -> do
 
     withFramebuffer eiFramebuffer $ do
       glClear (GL_COLOR_BUFFER_BIT .|. GL_DEPTH_BUFFER_BIT)
       let (x, y, w, h) = eiViewport
-          finalView    = eiEyeHeadTrans !*! headPose
+          finalView    = eiEyeHeadTrans !*! view44
       glViewport x y w h
 
       render cubeShape eiProjection finalView (handCubes ++ worldCubes)
