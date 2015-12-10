@@ -263,6 +263,12 @@ hideMirrorWindow (IVRCompositor compositorPtr) = liftIO $ do
     VR_IVRCompositor_HideMirrorWindow(compositor);
   }|]
 
+resetSeatedZeroPose :: MonadIO m => IVRSystem -> m ()
+resetSeatedZeroPose (IVRSystem systemPtr) = liftIO $ do
+  [C.block|void{
+    intptr_t system = $(intptr_t systemPtr);
+    VR_IVRSystem_ResetSeatedZeroPose(system);
+  }|]
 
 showKeyboard :: MonadIO m => m ()
 showKeyboard = liftIO $ do
