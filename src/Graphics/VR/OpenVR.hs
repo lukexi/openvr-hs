@@ -16,6 +16,7 @@ import Linear.Extra
 import Text.RawString.QQ (r)
 import Graphics.GL.Pal
 import Control.Monad
+import Data.List (sortOn)
 
 -- Set up inline-c to gain Cpp and Function Pointer abilities
 C.context (C.baseCtx <> C.funCtx)
@@ -308,7 +309,7 @@ hideKeyboard = liftIO $ do
 
 triggerHapticPulse :: MonadIO m => IVRSystem -> CInt -> CInt -> CUShort -> m ()
 triggerHapticPulse system@(IVRSystem systemPtr) controllerNumber axis duration = liftIO $ do
-  deviceIndex <- getDeviceIndexOfController system controllerNumber
+  deviceIndex <- getDeviceIndexOfControllerRole system controllerNumber
   [C.block|void {
     intptr_t system = $(intptr_t systemPtr);
     int nDevice = $(int deviceIndex);
@@ -343,7 +344,7 @@ pollNextEvent (IVRSystem systemPtr) = liftIO $ do
 getControllerState :: MonadIO m => IVRSystem -> CInt -> m (CFloat, CFloat, CFloat, Bool, Bool)
 getControllerState system@(IVRSystem systemPtr) controllerNumber = liftIO $ do
 
-  deviceIndex <- getDeviceIndexOfController system controllerNumber
+  deviceIndex <- getDeviceIndexOfControllerRole system controllerNumber
   (x, y, trigger, grip, start) <- C.withPtrs_ $ \(xPtr, yPtr, triggerPtr, gripPtr, startPtr) -> 
     [C.block|void {
       intptr_t system = $(intptr_t systemPtr);
@@ -379,26 +380,25 @@ getControllerState system@(IVRSystem systemPtr) controllerNumber = liftIO $ do
     }|]
   return (x, y, trigger, grip /= 0, start /= 0)
 
-getDeviceIndexOfController :: MonadIO m => IVRSystem -> CInt -> m CInt
-getDeviceIndexOfController (IVRSystem systemPtr) controllerNumber = liftIO $ do
+getDeviceIndexOfControllerRole :: MonadIO m => IVRSystem -> CInt -> m CInt
+getDeviceIndexOfControllerRole (IVRSystem systemPtr) controllerRole = liftIO $ do
   [C.block|int {
     intptr_t system = $(intptr_t systemPtr);
-    int controllerNumber = $(int controllerNumber);
-
-    TrackedDeviceIndex_t deviceIndices[2];
-    uint32_t numIndices = VR_IVRSystem_GetSortedTrackedDeviceIndicesOfClass(system, 
-        ETrackedDeviceClass_TrackedDeviceClass_Controller, 
-        deviceIndices, 2, 0);
-    if (numIndices > controllerNumber) {
-      return deviceIndices[controllerNumber];
-    } else {
-      return 0;
-    }
+    int controllerRole = $(int controllerRole);
+    return VR_IVRSystem_GetTrackedDeviceIndexForControllerRole(system, controllerRole);
   }|]
 
-waitGetPoses :: (MonadIO m) => IVRCompositor -> IVRSystem -> m [M44 GLfloat]
+
+-- | Get the roles and matrices for the current frame.
+-- (Nb. this function could use a few improvements : ) — we're using globals 
+-- g_trackedDevicePoses and g_trackedDevicePosesCount just for storing
+-- the poses across FFI calls to then pack them into M44s. We're also calling
+-- the FFI 3 times. Better would be to preallocate some memory in initOpenVR, 
+-- write to it with one FFI call here, return the count, then pull the data into Haskell land.
+waitGetPoses :: (MonadIO m) => IVRCompositor -> IVRSystem -> m [(CInt, M44 GLfloat)]
 waitGetPoses (IVRCompositor compositorPtr) (IVRSystem systemPtr) = liftIO $ do
-  -- First count how many valid HMD and controller poses exist
+
+  -- First count how many valid HMD and controller poses exist so we can allocate an array
   numPoses <- fromIntegral <$> [C.block|int {
       intptr_t compositor = $(intptr_t compositorPtr);
       intptr_t system = $(intptr_t systemPtr);
@@ -419,7 +419,7 @@ waitGetPoses (IVRCompositor compositorPtr) (IVRSystem systemPtr) = liftIO $ do
     }|]
 
   -- Then fill our coffers with them
-  buildM44sWithPtr numPoses $ \ptr -> 
+  matrices <- buildM44sWithPtr numPoses $ \ptr -> 
     [C.block|void {
       intptr_t system = $(intptr_t systemPtr);
       int offset = 0;
@@ -436,6 +436,25 @@ waitGetPoses (IVRCompositor compositorPtr) (IVRSystem systemPtr) = liftIO $ do
         }
       }
     }|]
+  -- Also nab the roles so we can match up a controller poses with their states
+  roles <- withArray_ numPoses $ \ptr ->
+    [C.block|void {
+      intptr_t system = $(intptr_t systemPtr);
+      int* roles = $(int* ptr);
+      int offset = 0;
+      for (int nDevice = 0; nDevice < g_trackedDevicePosesCount; nDevice++) {
+        TrackedDevicePose_t pose = g_trackedDevicePoses[nDevice];
+        if (pose.bPoseIsValid) {
+          TrackedDeviceClass deviceClass = VR_IVRSystem_GetTrackedDeviceClass(system, nDevice);
+          if (deviceClass == ETrackedDeviceClass_TrackedDeviceClass_HMD ||
+              deviceClass == ETrackedDeviceClass_TrackedDeviceClass_Controller) {
+            roles[offset] = VR_IVRSystem_GetControllerRoleForTrackedDeviceIndex(nDevice);
+            offset++;
+          }
+        }
+      }
+    }|]
+  return (sortOn fst (zip roles matrices))
 
 
 -- | Returns the predicted poses of devices of the given class at the next display time

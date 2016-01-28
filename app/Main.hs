@@ -76,7 +76,7 @@ main = do
 openVRLoop :: (MonadState World m, MonadIO m) => Window -> Events -> Shape Uniforms -> OpenVR -> m ()
 openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
   pollNextEvent ovrSystem
-  poses <- waitGetPoses ovrCompositor ovrSystem
+  poses <- map snd <$> waitGetPoses ovrCompositor ovrSystem
   let (headPose, handPoses) = case poses of
         [headPose] -> (headPose, [])
         [headPose, onePose] -> (headPose, [onePose])
