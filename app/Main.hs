@@ -65,6 +65,9 @@ main = do
           setWindowSize window (fromIntegral w `div` 2) (fromIntegral h `div` 2)
         _ -> return ()
 
+      -- If we leave the keyboard showing when we quit an app, we lose input. Hide it at the start to get it back.
+      hideKeyboard
+
       openVRLoop window events cubeShape openVR
     Nothing -> flatLoop window events cubeShape
   

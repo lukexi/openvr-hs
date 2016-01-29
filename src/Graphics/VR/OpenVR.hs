@@ -17,6 +17,7 @@ import Text.RawString.QQ (r)
 import Graphics.GL.Pal
 import Control.Monad
 import Control.Arrow
+import Data.IORef
 
 -- Set up inline-c to gain Cpp and Function Pointer abilities
 C.context (C.baseCtx <> C.funCtx)
@@ -327,9 +328,17 @@ triggerHapticPulse system@(IVRSystem systemPtr) controllerRole axis duration = l
     VR_IVRSystem_TriggerHapticPulse(system, nDevice, unAxisId, usDurationMicroSec);
   }|]
 
+data OpenVREvent = OpenVREventKeyboardCharInput String
+
 -- | Currently just prints out the event
-pollNextEvent :: MonadIO m => IVRSystem -> m ()
+pollNextEvent :: MonadIO m => IVRSystem -> m [OpenVREvent]
 pollNextEvent (IVRSystem systemPtr) = liftIO $ do
+
+  charInputIORef <- newIORef ""
+  let captureCChars charsPtr = do
+        chars <- peekCString charsPtr
+        modifyIORef' charInputIORef (++ chars)
+
   [C.block|void {
     intptr_t system = $(intptr_t systemPtr);
 
@@ -337,15 +346,21 @@ pollNextEvent (IVRSystem systemPtr) = liftIO $ do
 
     while (VR_IVRSystem_PollNextEvent(system, &event)) {
       char *eventName = VR_IVRSystem_GetEventTypeNameFromEnum(system, event.eventType);
+      printf("Got event type: %s\n", eventName);
 
       if (event.eventType == EVREventType_VREvent_KeyboardCharInput) {
-        printf("Got keyboard character event: %s\n", eventName);
-      }
-      printf("Got event type: %s\n", eventName);
-    }
+        printf("Got keyboard character event: %s\n", event.data.keyboard.cNewInput);
+        printf("Got keyboard character event: %d\n", event.data.keyboard.cNewInput[0]);
+        printf("User value: %Lu\n", event.data.keyboard.uUserValue);
 
-    
+        $fun:(void (*captureCChars)(char*))(event.data.keyboard.cNewInput);
+      }
+    }
   }|]
+  chars <- readIORef charInputIORef
+  when (not (null chars)) $ print chars
+  
+  return [OpenVREventKeyboardCharInput chars]
   
 -- | The controller role here corresponds to the ETrackedControllerRole
 getControllerState :: MonadIO m => IVRSystem -> TrackedControllerRole -> m (CFloat, CFloat, CFloat, Bool, Bool)
