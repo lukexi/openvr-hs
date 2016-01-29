@@ -78,9 +78,9 @@ openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
   pollNextEvent ovrSystem
   poses <- map snd <$> waitGetPoses ovrCompositor ovrSystem
   let (headPose, handPoses) = case poses of
-        [headPose] -> (headPose, [])
-        [headPose, onePose] -> (headPose, [onePose])
-        [headPose, leftPose, rightPose] -> (headPose, [leftPose, rightPose])
+        [headPose'] -> (headPose', [])
+        [headPose', onePose] -> (headPose', [onePose])
+        [headPose', leftPose, rightPose] -> (headPose', [leftPose, rightPose])
         _ -> (identity, [])
 
   hands <- forM (zip [0..] handPoses) $ \(i, pose) -> do

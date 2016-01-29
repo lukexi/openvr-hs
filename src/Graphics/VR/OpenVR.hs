@@ -408,7 +408,7 @@ waitGetPoses (IVRCompositor compositorPtr) (IVRSystem systemPtr) = liftIO $ do
       for (int nDevice = 0; nDevice < g_trackedDevicePosesCount; nDevice++) {
         TrackedDevicePose_t pose = g_trackedDevicePoses[nDevice];
         if (pose.bPoseIsValid) {
-          TrackedDeviceClass deviceClass = VR_IVRSystem_GetTrackedDeviceClass(system, nDevice);
+          ETrackedDeviceClass deviceClass = VR_IVRSystem_GetTrackedDeviceClass(system, nDevice);
           if (deviceClass == ETrackedDeviceClass_TrackedDeviceClass_HMD ||
               deviceClass == ETrackedDeviceClass_TrackedDeviceClass_Controller) {
             numPoses++;
@@ -426,7 +426,7 @@ waitGetPoses (IVRCompositor compositorPtr) (IVRSystem systemPtr) = liftIO $ do
       for (int nDevice = 0; nDevice < g_trackedDevicePosesCount; nDevice++) {
         TrackedDevicePose_t pose = g_trackedDevicePoses[nDevice];
         if (pose.bPoseIsValid) {
-          TrackedDeviceClass deviceClass = VR_IVRSystem_GetTrackedDeviceClass(system, nDevice);
+          ETrackedDeviceClass deviceClass = VR_IVRSystem_GetTrackedDeviceClass(system, nDevice);
           if (deviceClass == ETrackedDeviceClass_TrackedDeviceClass_HMD ||
               deviceClass == ETrackedDeviceClass_TrackedDeviceClass_Controller) {
             HmdMatrix34_t transform = pose.mDeviceToAbsoluteTracking;
@@ -445,10 +445,10 @@ waitGetPoses (IVRCompositor compositorPtr) (IVRSystem systemPtr) = liftIO $ do
       for (int nDevice = 0; nDevice < g_trackedDevicePosesCount; nDevice++) {
         TrackedDevicePose_t pose = g_trackedDevicePoses[nDevice];
         if (pose.bPoseIsValid) {
-          TrackedDeviceClass deviceClass = VR_IVRSystem_GetTrackedDeviceClass(system, nDevice);
+          ETrackedDeviceClass deviceClass = VR_IVRSystem_GetTrackedDeviceClass(system, nDevice);
           if (deviceClass == ETrackedDeviceClass_TrackedDeviceClass_HMD ||
               deviceClass == ETrackedDeviceClass_TrackedDeviceClass_Controller) {
-            roles[offset] = VR_IVRSystem_GetControllerRoleForTrackedDeviceIndex(nDevice);
+            roles[offset] = VR_IVRSystem_GetControllerRoleForTrackedDeviceIndex(system, nDevice);
             offset++;
           }
         }
@@ -480,7 +480,7 @@ getDevicePosesOfClass system@(IVRSystem systemPtr) trackedDeviceClass = liftIO $
 
       int offset = 0;
       for (int nDevice = 0; nDevice < k_unMaxTrackedDeviceCount; nDevice++) {
-        TrackedDeviceClass deviceClass = VR_IVRSystem_GetTrackedDeviceClass(system, nDevice);
+        ETrackedDeviceClass deviceClass = VR_IVRSystem_GetTrackedDeviceClass(system, nDevice);
 
         if (deviceClass == $(int trackedDeviceClassInt)) {
           TrackedDevicePose_t pose = trackedDevicePoses[nDevice];
@@ -502,7 +502,7 @@ getNumDevicesOfClass (IVRSystem systemPtr) trackedDeviceClass = liftIO $ do
       int numDevicesOfClass = 0;
 
       for (int nDevice = 0; nDevice < k_unMaxTrackedDeviceCount; nDevice++) {
-        TrackedDeviceClass deviceClass = VR_IVRSystem_GetTrackedDeviceClass(system, nDevice);
+        ETrackedDeviceClass deviceClass = VR_IVRSystem_GetTrackedDeviceClass(system, nDevice);
 
         if (deviceClass == $(int trackedDeviceClassInt)) {
           numDevicesOfClass++;
