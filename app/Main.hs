@@ -76,15 +76,10 @@ main = do
 openVRLoop :: (MonadState World m, MonadIO m) => Window -> Events -> Shape Uniforms -> OpenVR -> m ()
 openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
   pollNextEvent ovrSystem
-  poses <- map snd <$> waitGetPoses ovrCompositor ovrSystem
-  let (headPose, handPoses) = case poses of
-        [headPose'] -> (headPose', [])
-        [headPose', onePose] -> (headPose', [onePose])
-        [headPose', leftPose, rightPose] -> (headPose', [leftPose, rightPose])
-        _ -> (identity, [])
+  (headPose, handPosesByRole) <- waitGetPoses ovrCompositor ovrSystem
 
-  hands <- forM (zip [0..] handPoses) $ \(i, pose) -> do
-    (x, y, trigger, grip, start) <- getControllerState ovrSystem i
+  hands <- forM handPosesByRole $ \(controllerRole, pose) -> do
+    (x, y, trigger, grip, start) <- getControllerState ovrSystem controllerRole
     let hand = Hand
           { hndMatrix = pose
           , hndXY = realToFrac <$> V2 x y
@@ -93,9 +88,9 @@ openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
           , hndStart = start
           }
     when (trigger > 0.5) $
-      triggerHapticPulse ovrSystem i 0 100
+      triggerHapticPulse ovrSystem controllerRole 0 100
 
-    when (i == 0) $ do
+    when (controllerRole == TrackedControllerRoleRightHand) $ do
       keyboardShowing <- gets wldKeyboardShowing
       when (grip && not keyboardShowing) $ do
         showKeyboard
