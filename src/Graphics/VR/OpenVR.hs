@@ -346,7 +346,7 @@ pollNextEvent (IVRSystem systemPtr) = liftIO $ do
 
     while (VR_IVRSystem_PollNextEvent(system, &event)) {
       char *eventName = VR_IVRSystem_GetEventTypeNameFromEnum(system, event.eventType);
-      printf("Got event type: %s\n", eventName);
+      // printf("Got event type: %s\n", eventName);
 
       if (event.eventType == EVREventType_VREvent_KeyboardCharInput) {
         printf("Got keyboard character event: %s\n", event.data.keyboard.cNewInput);
@@ -599,7 +599,7 @@ createOpenVR = do
       -- putStrLn $ "Got system: " ++ show system
       (w,h) <- getRenderTargetSize system
       eyes <- forM [LeftEye, RightEye] $ \eye -> do
-        eyeProj  <- getEyeProjectionMatrix system eye 0.1 100
+        eyeProj  <- getEyeProjectionMatrix system eye 0.1 10000
         eyeTrans <- inv44 <$> getEyeToHeadTransform system eye
 
         (framebuffer, framebufferTexture) <- createFramebuffer (fromIntegral w) (fromIntegral h)
