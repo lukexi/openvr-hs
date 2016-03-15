@@ -1,0 +1,171 @@
+For version 0.9.14
+80f2e46c95e3ddfa7d480940007385f9b96be5a4
+
+Find and replace 'vr::' with nothing
+Find and replace 'extern "C"' with nothing
+Add missing structs and apis
+
+$ diff openvr/headers/openvr_capi.h openvr_capi.h
+17c17
+<       #define S_API extern "C" __declspec( dllexport )
+---
+>       #define S_API __declspec( dllexport )
+21c21
+<       #define S_API extern "C" __declspec( dllimport )
+---
+>       #define S_API __declspec( dllimport )
+25c25
+<       #define S_API extern "C" __attribute__ ((visibility("default")))
+---
+>       #define S_API __attribute__ ((visibility("default")))
+27c27
+<       #define S_API extern "C"
+---
+>       #define S_API
+31c31
+<       #define S_API extern "C"
+---
+>       #define S_API
+33c33
+<       #define S_API extern "C"
+---
+>       #define S_API
+38a39
+>
+71,77d71
+< typedef union
+< {
+<       VREvent_Reserved_t reserved;
+<       VREvent_Controller_t controller;
+<       VREvent_Mouse_t mouse;
+<       VREvent_Process_t process;
+< } VREvent_Data_t;
+88,102c82,96
+< typedef enum vr::EVRInitError HmdError;
+< typedef enum vr::EVREye Hmd_Eye;
+< typedef enum vr::EGraphicsAPIConvention GraphicsAPIConvention;
+< typedef enum vr::EColorSpace ColorSpace;
+< typedef enum vr::ETrackingResult HmdTrackingResult;
+< typedef enum vr::ETrackedDeviceClass TrackedDeviceClass;
+< typedef enum vr::ETrackingUniverseOrigin TrackingUniverseOrigin;
+< typedef enum vr::ETrackedDeviceProperty TrackedDeviceProperty;
+< typedef enum vr::ETrackedPropertyError TrackedPropertyError;
+< typedef enum vr::EVRSubmitFlags VRSubmitFlags_t;
+< typedef enum vr::EVRState VRState_t;
+< typedef enum vr::ECollisionBoundsStyle CollisionBoundsStyle_t;
+< typedef enum vr::EVROverlayError VROverlayError;
+< typedef enum vr::EVRFirmwareError VRFirmwareError;
+< typedef enum vr::EVRCompositorError VRCompositorError;
+---
+> typedef enum EVRInitError HmdError;
+> typedef enum EVREye Hmd_Eye;
+> typedef enum EGraphicsAPIConvention GraphicsAPIConvention;
+> typedef enum EColorSpace ColorSpace;
+> typedef enum ETrackingResult HmdTrackingResult;
+> typedef enum ETrackedDeviceClass TrackedDeviceClass;
+> typedef enum ETrackingUniverseOrigin TrackingUniverseOrigin;
+> typedef enum ETrackedDeviceProperty TrackedDeviceProperty;
+> typedef enum ETrackedPropertyError TrackedPropertyError;
+> typedef enum EVRSubmitFlags VRSubmitFlags_t;
+> typedef enum EVRState VRState_t;
+> typedef enum ECollisionBoundsStyle CollisionBoundsStyle_t;
+> typedef enum EVROverlayError VROverlayError;
+> typedef enum EVRFirmwareError VRFirmwareError;
+> typedef enum EVRCompositorError VRCompositorError;
+977a972,1041
+> inline uint64_t ButtonMaskFromId( EVRButtonId id ) { return 1ull << id; }
+>
+> /** notification related events. Details will still change at this point */
+> typedef struct VREvent_Notification_t
+> {
+>       uint64_t ulUserValue;
+>       uint32_t notificationId;
+> } VREvent_Notification_t;
+>
+>
+>
+> /** Used for a few events about overlays */
+> typedef struct VREvent_Overlay_t
+> {
+>       uint64_t overlayHandle;
+> } VREvent_Overlay_t;
+>
+>
+> /** Used for a few events about overlays */
+> typedef struct VREvent_Status_t
+> {
+>       EVRState statusState;
+> } VREvent_Status_t;
+>
+> /** Used for keyboard events **/
+> typedef struct VREvent_Keyboard_t
+> {
+>       char cNewInput[8];      // Up to 11 bytes of new input
+>       uint64_t uUserValue;    // Possible flags about the new input
+> } VREvent_Keyboard_t;
+>
+> typedef struct VREvent_Ipd_t
+> {
+>       float ipdMeters;
+> } VREvent_Ipd_t;
+>
+> typedef struct VREvent_Chaperone_t
+> {
+>       uint64_t m_nPreviousUniverse;
+>       uint64_t m_nCurrentUniverse;
+> } VREvent_Chaperone_t;
+>
+> typedef struct VREvent_PerformanceTest_t
+> {
+>       uint32_t m_nFidelityLevel;
+> } VREvent_PerformanceTest_t;
+>
+> typedef union
+> {
+>       VREvent_Reserved_t reserved;
+>       VREvent_Controller_t controller;
+>       VREvent_Mouse_t mouse;
+>       VREvent_Process_t process;
+>       VREvent_Notification_t notification;
+>       VREvent_Overlay_t overlay;
+>       VREvent_Status_t status;
+>       VREvent_Keyboard_t keyboard;
+>       VREvent_Ipd_t ipd;
+>       VREvent_Chaperone_t chaperone;
+>       VREvent_PerformanceTest_t performanceTest;
+> } VREvent_Data_t;
+>
+> /** An event posted by the server to all running applications */
+> typedef struct VREvent_t
+> {
+>       EVREventType eventType;
+>       TrackedDeviceIndex_t trackedDeviceIndex;
+>       VREvent_Data_t data;
+>       float eventAgeSeconds;
+> } VREvent_t;
+1214a1279,1298
+> /** Returns the current IVRSystem pointer or NULL if VR_Init has not been called successfully */
+> S_API intptr_t VRSystem();
+>
+> /** Returns the current IVRChaperone pointer or NULL the interface could not be found. */
+> S_API intptr_t VRChaperone();
+>
+> /** Returns the current IVRChaperoneSetup pointer or NULL the interface could not be found. */
+> S_API intptr_t VRChaperoneSetup();
+>
+> /** Returns the current IVRCompositor pointer or NULL the interface could not be found. */
+> S_API intptr_t VRCompositor();
+>
+> /** Returns the current IVROverlay pointer or NULL the interface could not be found. */
+> S_API intptr_t VROverlay();
+>
+> /** Returns the current IVRRenderModels pointer or NULL the interface could not be found. */
+> S_API intptr_t VRRenderModels();
+>
+> /** Returns the current IVRTrackedCamera pointer or NULL the interface could not be found. */
+> S_API intptr_t VRTrackedCamera();
+1215a1300,1303
+> /** Returns the current IVRExtendedDisplay pointer or NULL the interface could not be found.
+> * This function will also return NULL if the VR Compositor is running as the extended display
+> * interface is incompatible with the compositor. */
+> S_API intptr_t VRExtendedDisplay();
