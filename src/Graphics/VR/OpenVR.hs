@@ -18,6 +18,7 @@ import Text.RawString.QQ (r)
 import Graphics.GL.Pal
 import Control.Monad
 import Control.Arrow
+import Data.IORef
 
 -- Set up inline-c to gain Cpp and Function Pointer abilities
 C.context (C.cppCtx <> C.funCtx)
@@ -85,68 +86,66 @@ TrackedDevicePose_t g_trackedDevicePoses[g_trackedDevicePosesCount];
 
 void fillFromMatrix44(HmdMatrix44_t matrix, float* out) {
   
-  out[0]  = matrix.m[0][0];
-  out[1]  = matrix.m[1][0];
-  out[2]  = matrix.m[2][0];
-  out[3]  = matrix.m[3][0];
-  out[4]  = matrix.m[0][1];
-  out[5]  = matrix.m[1][1];
-  out[6]  = matrix.m[2][1];
-  out[7]  = matrix.m[3][1];
-  out[8]  = matrix.m[0][2];
-  out[9]  = matrix.m[1][2];
-  out[10] = matrix.m[2][2];
-  out[11] = matrix.m[3][2];
-  out[12] = matrix.m[0][3];
-  out[13] = matrix.m[1][3];
-  out[14] = matrix.m[2][3];
-  out[15] = matrix.m[3][3];
+    out[0]  = matrix.m[0][0];
+    out[1]  = matrix.m[1][0];
+    out[2]  = matrix.m[2][0];
+    out[3]  = matrix.m[3][0];
+    out[4]  = matrix.m[0][1];
+    out[5]  = matrix.m[1][1];
+    out[6]  = matrix.m[2][1];
+    out[7]  = matrix.m[3][1];
+    out[8]  = matrix.m[0][2];
+    out[9]  = matrix.m[1][2];
+    out[10] = matrix.m[2][2];
+    out[11] = matrix.m[3][2];
+    out[12] = matrix.m[0][3];
+    out[13] = matrix.m[1][3];
+    out[14] = matrix.m[2][3];
+    out[15] = matrix.m[3][3];
 }
 
 void fillFromMatrix34(HmdMatrix34_t matrix, float* out) {
   
-  out[0]  = matrix.m[0][0];
-  out[1]  = matrix.m[1][0];
-  out[2]  = matrix.m[2][0];
-  out[3]  = 0;
-  out[4]  = matrix.m[0][1];
-  out[5]  = matrix.m[1][1];
-  out[6]  = matrix.m[2][1];
-  out[7]  = 0;
-  out[8]  = matrix.m[0][2];
-  out[9]  = matrix.m[1][2];
-  out[10] = matrix.m[2][2];
-  out[11] = 0;
-  out[12] = matrix.m[0][3];
-  out[13] = matrix.m[1][3];
-  out[14] = matrix.m[2][3];
-  out[15] = 1;
+    out[0]  = matrix.m[0][0];
+    out[1]  = matrix.m[1][0];
+    out[2]  = matrix.m[2][0];
+    out[3]  = 0;
+    out[4]  = matrix.m[0][1];
+    out[5]  = matrix.m[1][1];
+    out[6]  = matrix.m[2][1];
+    out[7]  = 0;
+    out[8]  = matrix.m[0][2];
+    out[9]  = matrix.m[1][2];
+    out[10] = matrix.m[2][2];
+    out[11] = 0;
+    out[12] = matrix.m[0][3];
+    out[13] = matrix.m[1][3];
+    out[14] = matrix.m[2][3];
+    out[15] = 1;
 }
 |]
 
 isHMDPresent :: MonadIO m => m Bool
 isHMDPresent = toEnum . fromIntegral <$> liftIO [C.block| int {
-
-  return VR_IsHmdPresent() ? 1 : 0;
-
-  }|]
+    return VR_IsHmdPresent() ? 1 : 0;
+    }|]
 
 -- | Creates the OpenVR System object, which is the main point of interface with OpenVR.
 -- Will return Nothing if no headset can be found, or if some other error occurs during initialization.
 initOpenVR :: MonadIO m => m (Maybe IVRSystem)
 initOpenVR = liftIO $ do
-  systemPtr <- [C.block| void * {
-    EVRInitError err = VRInitError_None;
-    IVRSystem *system = VR_Init(&err, VRApplication_Scene);
-
-    if (system == 0) {
-      printf("initOpenVR error: %s\n", VR_GetVRInitErrorAsEnglishDescription(err));
-    }
-
-    return system;
-    } |]
-
-  return $ if systemPtr == nullPtr then Nothing else Just (IVRSystem systemPtr)
+    systemPtr <- [C.block| void * {
+        EVRInitError err = VRInitError_None;
+        IVRSystem *system = VR_Init(&err, VRApplication_Scene);
+    
+        if (system == 0) {
+            printf("initOpenVR error: %s\n", VR_GetVRInitErrorAsEnglishDescription(err));
+        }
+    
+        return system;
+        } |]
+  
+    return $ if systemPtr == nullPtr then Nothing else Just (IVRSystem systemPtr)
 
 -- | Gets a reference to the OpenVR Compositor, which is used to submit frames to the headset.
 getCompositor :: MonadIO m => m (Maybe IVRCompositor) 
@@ -298,6 +297,77 @@ triggerHapticPulse (IVRSystem systemPtr) controllerRole axis duration = liftIO $
 
 data OpenVREvent = OpenVREventKeyboardCharInput String
 
+
+-- | Currently just prints out the event
+pollNextEvent :: MonadIO m => IVRSystem -> m [OpenVREvent]
+pollNextEvent (IVRSystem systemPtr) = liftIO $ do
+
+    charInputIORef <- newIORef ""
+    let captureCChars charsPtr = do
+          chars <- peekCString charsPtr
+          modifyIORef' charInputIORef (++ chars)
+  
+    [C.block|void {
+        IVRSystem *system = (IVRSystem *)$(void *systemPtr);
+    
+        VREvent_t event;
+    
+        while (system->PollNextEvent(&event, sizeof(event))) {
+            const char *eventName = system->GetEventTypeNameFromEnum((EVREventType)event.eventType);
+            // printf("Got event type: %s\n", eventName);
+      
+            if (event.eventType == VREvent_KeyboardCharInput) {
+                printf("Got keyboard character event: %s\n", event.data.keyboard.cNewInput);
+                printf("Got keyboard character event: %d\n", event.data.keyboard.cNewInput[0]);
+                printf("User value: %Lu\n", event.data.keyboard.uUserValue);
+        
+                $fun:(void (*captureCChars)(char*))(event.data.keyboard.cNewInput);
+            }
+        }
+    }|]
+    chars <- readIORef charInputIORef
+    when (not (null chars)) $ print chars
+    
+    return [OpenVREventKeyboardCharInput chars]
+  
+-- | The controller role here corresponds to the ETrackedControllerRole
+getControllerState :: MonadIO m => IVRSystem -> TrackedControllerRole -> m (CFloat, CFloat, CFloat, Bool, Bool)
+getControllerState (IVRSystem systemPtr) controllerRole = liftIO $ do
+    let cControllerRole = trackedControllerRoleToC controllerRole
+    (x, y, trigger, grip, start) <- C.withPtrs_ $ \(xPtr, yPtr, triggerPtr, gripPtr, startPtr) -> 
+        [C.block|void {
+            IVRSystem *system = (IVRSystem *)$(void *systemPtr);
+
+            ETrackedControllerRole controllerRole = (ETrackedControllerRole)$(int cControllerRole);
+            int nDevice = system->GetTrackedDeviceIndexForControllerRole(controllerRole);
+
+            VRControllerState_t state;
+            system->GetControllerState(nDevice, &state);
+            
+            // for (int nAxis; nAxis < k_unControllerStateAxisCount; nAxis++) {
+            //   printf("%i Axis %i: %f \t%f\n", 
+            //     nDevice,
+            //     nAxis, 
+            //     state.rAxis[nAxis].x, 
+            //     state.rAxis[nAxis].y);
+            // }
+            // printf("%i Touched: %i\n", nDevice, state.ulButtonTouched);
+            // printf("%i Pressed: %i\n", nDevice, state.ulButtonPressed);
+            
+            *$(float* xPtr) = state.rAxis[0].x;
+            *$(float* yPtr) = state.rAxis[0].y;
+
+            *$(float* triggerPtr) = state.rAxis[1].x;
+
+            int gripMask = ButtonMaskFromId(k_EButton_Grip);
+            int menuMask = ButtonMaskFromId(k_EButton_ApplicationMenu);
+
+            *$(int* gripPtr)    = (state.ulButtonPressed & gripMask)
+                                  == gripMask;
+            *$(int* startPtr)   = (state.ulButtonPressed & menuMask)
+                                  == menuMask;
+      }|]
+    return (x, y, trigger, grip /= 0, start /= 0)
 
 -- | Get the roles and matrices for the current frame.
 -- (Nb. this function could use a few improvements : ) — we're using globals 
