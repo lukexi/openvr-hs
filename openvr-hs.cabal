@@ -24,9 +24,8 @@ library
                      , gl-pal
                      , raw-strings-qq
   default-language:    Haskell2010
-  -- include-dirs:        openvr/headers -- using our modified openvr_capi.h now
-  include-dirs:        .
-  c-sources:           src/Graphics/VR/OpenVR.c
+  include-dirs:        openvr/headers
+  c-sources:           src/Graphics/VR/OpenVR.cpp
   extra-libraries:     openvr_api
   ghc-options:         -Wall -O2
   ghc-prof-options:    -Wall -O2 -fprof-auto
@@ -35,7 +34,7 @@ library
     extra-libraries:   libstdc++-6
     -- We store openvr_api.dll in /usr/local/bin
     extra-lib-dirs:    c:\msys64\usr\local\bin 
-    cc-options:        -fno-exceptions
+    cc-options:        -fno-exceptions -std=c++0x
 
 test-suite demo
   type:                exitcode-stdio-1.0
@@ -54,6 +53,21 @@ test-suite demo
   default-language:    Haskell2010
   other-modules:       Cube
                        CubeUniforms
+
+test-suite test-cpp
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      app
+  main-is:             TestCPP.hs
+  ghc-options:         -O2 -Wall -threaded -rtsopts -with-rtsopts=-N
+  build-depends:       base
+                     , openvr-hs
+                     , gl-pal
+                     , glfw-pal
+                     , linear-extra
+                     , lens-extra
+                     , mtl
+                     , time
+  default-language:    Haskell2010
 
 source-repository head
   type:     git
