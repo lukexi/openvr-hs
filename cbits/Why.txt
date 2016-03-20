@@ -1,0 +1,14 @@
+
+I've sussed out the usage of the C API from some hints in openvr_api.cs.
+
+VR_GetGenericInterface can return a FnTable struct of the kinds declared in openvr_capi.h (e.g. VR_IVRSystem_FnTable)
+if you prepend the interface name with the string "FnTable:".
+
+The top level functions VR_GetGenericInterface and friends are missing from openvr_capi.h so we copy them from openvr.h.
+
+
+
+
+The reason we care at all is because GetProjectionMatrix, GetProjectionRaw and GetEyeToHeadTransform all crash when I'm compiling via MSYS2.
+
+We could use the C API exclusively using these methods, but the C++ seems to be the canonical version so I just left it to these 3 failing functions for now.

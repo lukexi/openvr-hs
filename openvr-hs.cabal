@@ -24,8 +24,9 @@ library
                      , gl-pal
                      , raw-strings-qq
   default-language:    Haskell2010
-  include-dirs:        openvr/headers
+  include-dirs:        openvr/headers, cbits
   c-sources:           src/Graphics/VR/OpenVR.cpp
+                       cbits/openvr_capi_helper.c
   extra-libraries:     openvr_api
   ghc-options:         -Wall -O2
   ghc-prof-options:    -Wall -O2 -fprof-auto
