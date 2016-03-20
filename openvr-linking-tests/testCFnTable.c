@@ -44,17 +44,21 @@ int main(int argc, char *argv[]) {
 
 
     char fnTableName[128];
-    sprintf_s(fnTableName, sizeof(fnTableName), "FnTable:%s", IVRSystem_Version);
+    int result = sprintf(fnTableName, "FnTable:%s", IVRSystem_Version);
 
     EVRInitError initError;
-    VR_GetGenericInterface(fnTableName, &initError);
+    struct VR_IVRSystem_FnTable *fnTable;
+    fnTable = (struct VR_IVRSystem_FnTable*)VR_GetGenericInterface(fnTableName, &initError);
 
+    printf("%s\n", fnTable->GetEventTypeNameFromEnum(EVREventType_VREvent_TrackedDeviceActivated));
     printf("Init error: %s\n", VR_GetVRInitErrorAsEnglishDescription(initError));
 
+    HmdMatrix44_t matrix = fnTable->GetProjectionMatrix(
+        EVREye_Eye_Left, 0.1, 10000, EGraphicsAPIConvention_API_OpenGL);
 
     // HmdMatrix44_t matrix = VR_IVRSystem_GetProjectionMatrix(sys,
     //     Hmd_Eye_Eye_Left, 0.1, 10000, GraphicsAPIConvention_API_OpenGL);
-    // printf("%f\n", matrix.m[0][0]);
+    printf("%f\n", matrix.m[0][0]);
 
 
     return 0;
