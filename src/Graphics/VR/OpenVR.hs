@@ -421,12 +421,11 @@ submitFrameForEye (IVRCompositor compositorPtr) eye (fromIntegral -> framebuffer
 
 
 data EyeInfo = EyeInfo
-    { eiEye                :: HmdEye
-    , eiProjection         :: M44 GLfloat
-    , eiEyeHeadTrans       :: M44 GLfloat
-    , eiViewport           :: (GLint, GLint, GLsizei, GLsizei)
-    , eiFramebuffer        :: GLuint
-    , eiFramebufferTexture :: GLuint
+    { eiEye                    :: HmdEye
+    , eiProjection             :: M44 GLfloat
+    , eiEyeHeadTrans           :: M44 GLfloat
+    , eiViewport               :: (GLint, GLint, GLsizei, GLsizei)
+    , eiMultisampleFramebuffer :: MultisampleFramebuffer
     }
 
 
@@ -449,14 +448,13 @@ createOpenVR = do
                 eyeProj  <- getEyeProjectionMatrix system eye 0.1 10000
                 eyeTrans <- inv44 <$> getEyeToHeadTransform system eye
         
-                (framebuffer, framebufferTexture) <- createFramebuffer (fromIntegral w) (fromIntegral h)
+                multisampleFramebuffer <- createMultisampleFramebuffer (fromIntegral w) (fromIntegral h)
                 return EyeInfo
                     { eiEye = eye
                     , eiProjection = eyeProj
                     , eiEyeHeadTrans = eyeTrans
                     , eiViewport = (0, 0, w, h)
-                    , eiFramebuffer = framebuffer
-                    , eiFramebufferTexture = framebufferTexture
+                    , eiMultisampleFramebuffer = multisampleFramebuffer
                     }
       
             mCompositor <- getCompositor
@@ -474,7 +472,7 @@ mirrorOpenVREyeToWindow :: MonadIO m => EyeInfo -> m ()
 mirrorOpenVREyeToWindow EyeInfo{..} = when (eiEye == LeftEye) $ do
     let (x, y, w, h) = eiViewport
   
-    glBindFramebuffer GL_READ_FRAMEBUFFER eiFramebuffer
+    glBindFramebuffer GL_READ_FRAMEBUFFER (unFramebuffer (mfbResolveFramebufferID eiMultisampleFramebuffer))
     glBindFramebuffer GL_DRAW_FRAMEBUFFER 0
   
     glBlitFramebuffer x y w h x y w h GL_COLOR_BUFFER_BIT GL_LINEAR

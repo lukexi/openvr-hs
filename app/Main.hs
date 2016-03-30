@@ -11,6 +11,7 @@ import Control.Lens.Extra
 import Halive.Utils
 import CubeUniforms
 import Cube
+import Data.Maybe
 
 data World = World
     { wldKeyboardShowing :: Bool
@@ -130,21 +131,47 @@ openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
     now <- (/ 2) . (+ 1) . sin . realToFrac . utctDayTime <$> liftIO getCurrentTime
     glClearColor 0.2 0.1 (now * 0.3) 1
   
-    let view44 = inv44 headPose
+    let viewM44 = inv44 headPose
+
+    -- Render each eye, with multisampling
     forM_ ovrEyes $ \eye@EyeInfo{..} -> do
+        let MultisampleFramebuffer{..} = eiMultisampleFramebuffer
+
+        glEnable GL_MULTISAMPLE
+
+        glBindFramebuffer GL_FRAMEBUFFER (unFramebuffer mfbRenderFramebufferID)
+        
+        glClear (GL_COLOR_BUFFER_BIT .|. GL_DEPTH_BUFFER_BIT)
+        let (x, y, w, h) = eiViewport
+            finalView    = eiEyeHeadTrans !*! viewM44
+        glViewport x y w h
+        
+        -- Render the scene
+        render cubeShape eiProjection finalView (handCubes ++ worldCubes)
+
+        glBindFramebuffer GL_FRAMEBUFFER 0
+        
+        glDisable GL_MULTISAMPLE
+            
+        glBindFramebuffer GL_READ_FRAMEBUFFER (unFramebuffer mfbRenderFramebufferID)
+        glBindFramebuffer GL_DRAW_FRAMEBUFFER (unFramebuffer mfbResolveFramebufferID)
+
+        glBlitFramebuffer 0 0 w h 0 0 w h 
+            GL_COLOR_BUFFER_BIT
+            GL_LINEAR
+
+        glBindFramebuffer GL_READ_FRAMEBUFFER 0
+        glBindFramebuffer GL_DRAW_FRAMEBUFFER 0 
+
+    -- Submit frames after rendering both
+    forM_ ovrEyes $ \eye@EyeInfo{..} -> do
+        let MultisampleFramebuffer{..} = eiMultisampleFramebuffer
+        submitFrameForEye ovrCompositor eiEye (unTextureID mfbResolveTextureID)
+
+    -- Finally, mirror.
+    forM_ (listToMaybe ovrEyes) $ \eye ->
+        mirrorOpenVREyeToWindow eye
     
-        withFramebuffer eiFramebuffer $ do
-            glClear (GL_COLOR_BUFFER_BIT .|. GL_DEPTH_BUFFER_BIT)
-            let (x, y, w, h) = eiViewport
-                finalView    = eiEyeHeadTrans !*! view44
-            glViewport x y w h
-      
-            render cubeShape eiProjection finalView (handCubes ++ worldCubes)
-      
-            submitFrameForEye ovrCompositor eiEye eiFramebufferTexture
-      
-            mirrorOpenVREyeToWindow eye
-  
     processEvents events $ closeOnEscape window
   
     swapBuffers window
