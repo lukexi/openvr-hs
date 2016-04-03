@@ -32,9 +32,30 @@ C.using "namespace vr"
 
 C.include "openvr_capi_helper.h"
 
+data EyeInfo = EyeInfo
+    { eiEye                    :: HmdEye
+    , eiProjection             :: M44 GLfloat
+    , eiEyeHeadTrans           :: M44 GLfloat
+    , eiViewport               :: (GLint, GLint, GLsizei, GLsizei)
+    , eiMultisampleFramebuffer :: MultisampleFramebuffer
+    }
+
+
+data OpenVR = OpenVR
+    { ovrSystem     :: IVRSystem
+    , ovrCompositor :: IVRCompositor
+    , ovrEyes       :: [EyeInfo]
+    }
 
 newtype IVRSystem     = IVRSystem     { unIVRSystem     :: Ptr () } deriving Show
 newtype IVRCompositor = IVRCompositor { unIVRCompositor :: Ptr () } deriving Show
+
+data OpenVREvent = VREventKeyboardCharInput String
+                 | VREventButtonPress   TrackedControllerRole EButton
+                 | VREventButtonUnpress TrackedControllerRole EButton
+                 | VREventButtonTouch   TrackedControllerRole EButton
+                 | VREventButtonUntouch TrackedControllerRole EButton
+                 deriving Show
 
 data TrackedControllerRole = TrackedControllerRoleInvalid
                            | TrackedControllerRoleLeftHand
@@ -62,6 +83,79 @@ trackedDeviceClassToC TrackedDeviceClassHMD               = [C.pure|int{TrackedD
 trackedDeviceClassToC TrackedDeviceClassController        = [C.pure|int{TrackedDeviceClass_Controller}|]
 trackedDeviceClassToC TrackedDeviceClassTrackingReference = [C.pure|int{TrackedDeviceClass_TrackingReference}|]
 trackedDeviceClassToC TrackedDeviceClassOther             = [C.pure|int{TrackedDeviceClass_Other}|]
+
+data EButton = EButtonSystem
+             | EButtonApplicationMenu
+             | EButtonGrip
+             | EButtonDPadLeft
+             | EButtonDPadUp
+             | EButtonDPadRight
+             | EButtonDPadDown
+             | EButtonA
+             | EButtonAxis0
+             | EButtonAxis1
+             | EButtonAxis2
+             | EButtonAxis3
+             | EButtonAxis4
+             deriving Show
+
+ebuttonFromCInt i
+    | i == k_EButton_System          = Just EButtonSystem
+    | i == k_EButton_ApplicationMenu = Just EButtonApplicationMenu
+    | i == k_EButton_Grip            = Just EButtonGrip
+    | i == k_EButton_DPad_Left       = Just EButtonDPadLeft
+    | i == k_EButton_DPad_Up         = Just EButtonDPadUp
+    | i == k_EButton_DPad_Right      = Just EButtonDPadRight
+    | i == k_EButton_DPad_Down       = Just EButtonDPadDown
+    | i == k_EButton_A               = Just EButtonA
+    | i == k_EButton_Axis0           = Just EButtonAxis0
+    | i == k_EButton_Axis1           = Just EButtonAxis1
+    | i == k_EButton_Axis2           = Just EButtonAxis2
+    | i == k_EButton_Axis3           = Just EButtonAxis3
+    | i == k_EButton_Axis4           = Just EButtonAxis4
+    | otherwise                      = Nothing
+k_EButton_System          :: Word32
+k_EButton_System          = [C.pure|uint32_t{k_EButton_System}|]
+k_EButton_ApplicationMenu :: Word32
+k_EButton_ApplicationMenu = [C.pure|uint32_t{k_EButton_ApplicationMenu}|]
+k_EButton_Grip            :: Word32
+k_EButton_Grip            = [C.pure|uint32_t{k_EButton_Grip}|]
+k_EButton_DPad_Left       :: Word32
+k_EButton_DPad_Left       = [C.pure|uint32_t{k_EButton_DPad_Left}|]
+k_EButton_DPad_Up         :: Word32
+k_EButton_DPad_Up         = [C.pure|uint32_t{k_EButton_DPad_Up}|]
+k_EButton_DPad_Right      :: Word32
+k_EButton_DPad_Right      = [C.pure|uint32_t{k_EButton_DPad_Right}|]
+k_EButton_DPad_Down       :: Word32
+k_EButton_DPad_Down       = [C.pure|uint32_t{k_EButton_DPad_Down}|]
+k_EButton_A               :: Word32
+k_EButton_A               = [C.pure|uint32_t{k_EButton_A}|]
+k_EButton_Axis0           :: Word32
+k_EButton_Axis0           = [C.pure|uint32_t{k_EButton_Axis0}|]
+k_EButton_Axis1           :: Word32
+k_EButton_Axis1           = [C.pure|uint32_t{k_EButton_Axis1}|]
+k_EButton_Axis2           :: Word32
+k_EButton_Axis2           = [C.pure|uint32_t{k_EButton_Axis2}|]
+k_EButton_Axis3           :: Word32
+k_EButton_Axis3           = [C.pure|uint32_t{k_EButton_Axis3}|]
+k_EButton_Axis4           :: Word32
+k_EButton_Axis4           = [C.pure|uint32_t{k_EButton_Axis4}|]
+k_VREvent_ButtonPress     :: Word32
+k_VREvent_ButtonPress     = [C.pure|uint32_t{VREvent_ButtonPress}|]
+k_VREvent_ButtonUnpress   :: Word32
+k_VREvent_ButtonUnpress   = [C.pure|uint32_t{VREvent_ButtonUnpress}|]
+k_VREvent_ButtonTouch     :: Word32
+k_VREvent_ButtonTouch     = [C.pure|uint32_t{VREvent_ButtonTouch}|]
+k_VREvent_ButtonUntouch   :: Word32
+k_VREvent_ButtonUntouch   = [C.pure|uint32_t{VREvent_ButtonUntouch}|]
+
+buttonEventFromC :: Word32 -> EButton -> TrackedControllerRole -> Maybe OpenVREvent
+buttonEventFromC eventType button whichHand
+    | eventType == k_VREvent_ButtonPress   = Just (VREventButtonPress   whichHand button)
+    | eventType == k_VREvent_ButtonUnpress = Just (VREventButtonUnpress whichHand button)
+    | eventType == k_VREvent_ButtonTouch   = Just (VREventButtonTouch   whichHand button)
+    | eventType == k_VREvent_ButtonUntouch = Just (VREventButtonUntouch whichHand button)
+    | otherwise                            = Nothing
 
 -- | Temporarily allocate an array of the given size, 
 -- pass it to a foreign function, then peek it before it is discarded
@@ -254,6 +348,8 @@ hideKeyboard = liftIO $ do
     VROverlay()->HideKeyboard();
   }|]
 
+
+
 triggerHapticPulse :: MonadIO m => IVRSystem -> TrackedControllerRole -> CInt -> CUShort -> m ()
 triggerHapticPulse (IVRSystem systemPtr) controllerRole axis duration = liftIO $ do
     let cControllerRole = trackedControllerRoleToC controllerRole
@@ -266,17 +362,22 @@ triggerHapticPulse (IVRSystem systemPtr) controllerRole axis duration = liftIO $
         system->TriggerHapticPulse(nDevice, unAxisId, usDurationMicroSec);
     }|]
 
-data OpenVREvent = OpenVREventKeyboardCharInput String
-
-
--- | Currently just prints out the event
+-- | Extract VREvent_t events from OpenVR.
 pollNextEvent :: MonadIO m => IVRSystem -> m [OpenVREvent]
 pollNextEvent (IVRSystem systemPtr) = liftIO $ do
 
     charInputIORef <- newIORef ""
+    buttonEventIORef     <- newIORef []
     let captureCChars charsPtr = do
-          chars <- peekCString charsPtr
-          modifyIORef' charInputIORef (++ chars)
+            chars <- peekCString charsPtr
+            modifyIORef' charInputIORef (++ chars)
+        captureEvent eventTypeC roleC buttonC = do
+            let controllerRole = toEnum . fromIntegral $ roleC
+                mEvent = do
+                    eButton <- ebuttonFromCInt buttonC
+                    buttonEventFromC eventTypeC eButton controllerRole
+            forM_ mEvent $ \event -> 
+                modifyIORef' buttonEventIORef (++[event])
   
     [C.block|void {
         IVRSystem *system = (IVRSystem *)$(void *systemPtr);
@@ -284,22 +385,30 @@ pollNextEvent (IVRSystem systemPtr) = liftIO $ do
         VREvent_t event;
     
         while (system->PollNextEvent(&event, sizeof(event))) {
-            const char *eventName = system->GetEventTypeNameFromEnum((EVREventType)event.eventType);
+            uint32_t eventType = event.eventType;
+            const char *eventName = system->GetEventTypeNameFromEnum((EVREventType)eventType);
             // printf("Got event type: %s\n", eventName);
-      
+            
             if (event.eventType == VREvent_KeyboardCharInput) {
-                printf("Got keyboard character event: %s\n", event.data.keyboard.cNewInput);
-                printf("Got keyboard character event: %d\n", event.data.keyboard.cNewInput[0]);
-                printf("User value: %Lu\n", event.data.keyboard.uUserValue);
         
                 $fun:(void (*captureCChars)(char*))(event.data.keyboard.cNewInput);
+            } else if (event.eventType == VREvent_ButtonPress || 
+                       event.eventType == VREvent_ButtonUnpress || 
+                       event.eventType == VREvent_ButtonTouch || 
+                       event.eventType == VREvent_ButtonUntouch) {
+                uint32_t button = event.data.controller.button;
+                TrackedDeviceIndex_t trackedDeviceIndex = event.trackedDeviceIndex;
+
+                ETrackedControllerRole role = system->GetControllerRoleForTrackedDeviceIndex(trackedDeviceIndex);
+                
+                $fun:(void (*captureEvent)(uint32_t, uint32_t, uint32_t))(eventType, role, button);
             }
         }
     }|]
     chars <- readIORef charInputIORef
-    when (not (null chars)) $ print chars
-    
-    return [OpenVREventKeyboardCharInput chars]
+    events <- readIORef buttonEventIORef
+        
+    return (if null chars then events else VREventKeyboardCharInput chars : events)
   
 -- | The controller role here corresponds to the ETrackedControllerRole
 getControllerState :: MonadIO m => IVRSystem -> TrackedControllerRole -> m (CFloat, CFloat, CFloat, Bool, Bool)
@@ -420,20 +529,7 @@ submitFrameForEye (IVRCompositor compositorPtr) eye (fromIntegral -> framebuffer
     }|]
 
 
-data EyeInfo = EyeInfo
-    { eiEye                    :: HmdEye
-    , eiProjection             :: M44 GLfloat
-    , eiEyeHeadTrans           :: M44 GLfloat
-    , eiViewport               :: (GLint, GLint, GLsizei, GLsizei)
-    , eiMultisampleFramebuffer :: MultisampleFramebuffer
-    }
 
-
-data OpenVR = OpenVR
-    { ovrSystem     :: IVRSystem
-    , ovrCompositor :: IVRCompositor
-    , ovrEyes       :: [EyeInfo]
-    }
 
 
 createOpenVR :: IO (Maybe OpenVR)

@@ -134,7 +134,7 @@ openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
     let viewM44 = inv44 headPose
 
     -- Render each eye, with multisampling
-    forM_ ovrEyes $ \eye@EyeInfo{..} -> do
+    forM_ ovrEyes $ \EyeInfo{..} -> do
         let MultisampleFramebuffer{..} = eiMultisampleFramebuffer
 
         glEnable GL_MULTISAMPLE
@@ -164,7 +164,7 @@ openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
         glBindFramebuffer GL_DRAW_FRAMEBUFFER 0 
 
     -- Submit frames after rendering both
-    forM_ ovrEyes $ \eye@EyeInfo{..} -> do
+    forM_ ovrEyes $ \EyeInfo{..} -> do
         let MultisampleFramebuffer{..} = eiMultisampleFramebuffer
         submitFrameForEye ovrCompositor eiEye (unTextureID mfbResolveTextureID)
 
