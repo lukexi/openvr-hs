@@ -31,7 +31,7 @@ data Hand = Hand
     } deriving Show
 
 worldCubes :: [Cube]
-worldCubes = [cubeAt x y z | x <- [-2..2], y <- [-2..2], z <- [-2..2] ]
+worldCubes = [cubeAt x y z | x <- [-5..5], y <- [-5..5], z <- [-5..5] ]
   where
     cubeAt x y z = Cube 
         { _cubMatrix = transformationFromPose $ newPose { _posPosition = V3 x y z }
@@ -134,13 +134,8 @@ openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
     let viewM44 = inv44 headPose
 
     -- Render each eye, with multisampling
-    forM_ ovrEyes $ \EyeInfo{..} -> do
-        let MultisampleFramebuffer{..} = eiMultisampleFramebuffer
+    forM_ ovrEyes $ \EyeInfo{..} -> withMultisamplingFramebuffer eiMultisampleFramebuffer $ do 
 
-        glEnable GL_MULTISAMPLE
-
-        glBindFramebuffer GL_FRAMEBUFFER (unFramebuffer mfbRenderFramebufferID)
-        
         glClear (GL_COLOR_BUFFER_BIT .|. GL_DEPTH_BUFFER_BIT)
         let (x, y, w, h) = eiViewport
             finalView    = eiEyeHeadTrans !*! viewM44
@@ -148,20 +143,6 @@ openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
         
         -- Render the scene
         render cubeShape eiProjection finalView (handCubes ++ worldCubes)
-
-        glBindFramebuffer GL_FRAMEBUFFER 0
-        
-        glDisable GL_MULTISAMPLE
-            
-        glBindFramebuffer GL_READ_FRAMEBUFFER (unFramebuffer mfbRenderFramebufferID)
-        glBindFramebuffer GL_DRAW_FRAMEBUFFER (unFramebuffer mfbResolveFramebufferID)
-
-        glBlitFramebuffer 0 0 w h 0 0 w h 
-            GL_COLOR_BUFFER_BIT
-            GL_LINEAR
-
-        glBindFramebuffer GL_READ_FRAMEBUFFER 0
-        glBindFramebuffer GL_DRAW_FRAMEBUFFER 0 
 
     -- Submit frames after rendering both
     forM_ ovrEyes $ \EyeInfo{..} -> do
@@ -223,11 +204,7 @@ draw model projectionView shape = do
     let Uniforms{..} = sUniforms shape
   
     uniformM44 uModelViewProjection (projectionView !*! model)
-    uniformM44 uInverseModel        (inv44 model)
     uniformM44 uModel               model
-  
+    
     let vc = geoVertCount (sGeometry shape)
     glDrawElements GL_TRIANGLES vc GL_UNSIGNED_INT nullPtr
-
-
-

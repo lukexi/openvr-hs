@@ -55,6 +55,27 @@ test-suite demo
   other-modules:       Cube
                        CubeUniforms
 
+-- Needs to be an executable to profile it (and comment out type:)
+-- executable demo-instanced
+test-suite demo-instanced
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      app
+  main-is:             MainI.hs
+  ghc-options:         -O2 -Wall -threaded -rtsopts "-with-rtsopts=-N -H512M -A4M" 
+  ghc-prof-options:    -O2 -Wall -threaded -rtsopts -prof -fprof-auto "-with-rtsopts=-N -T -p -S -H512M -A4M -L100"
+  build-depends:       base
+                     , halive
+                     , openvr-hs
+                     , gl-pal
+                     , glfw-pal
+                     , linear-extra
+                     , lens-extra
+                     , mtl
+                     , time
+                     , vector
+                     , clock
+  default-language:    Haskell2010
+
 test-suite test-cpp
   type:                exitcode-stdio-1.0
   hs-source-dirs:      app

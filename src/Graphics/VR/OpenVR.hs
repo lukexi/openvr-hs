@@ -99,6 +99,7 @@ data EButton = EButtonSystem
              | EButtonAxis4
              deriving Show
 
+ebuttonFromCInt :: Word32 -> Maybe EButton
 ebuttonFromCInt i
     | i == k_EButton_System          = Just EButtonSystem
     | i == k_EButton_ApplicationMenu = Just EButtonApplicationMenu
@@ -563,7 +564,7 @@ createOpenVR = do
                         , ovrCompositor = compositor
                         , ovrEyes = eyes
                         }
- 
+
 mirrorOpenVREyeToWindow :: MonadIO m => EyeInfo -> m ()
 mirrorOpenVREyeToWindow EyeInfo{..} = when (eiEye == LeftEye) $ do
     let (x, y, w, h) = eiViewport
