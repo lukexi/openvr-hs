@@ -125,7 +125,7 @@ main = do
     transformsBuffer <- bufferDataEmpty GL_STREAM_DRAW streamingBufferCapacity (Proxy :: Proxy (M44 GLfloat))
     colorsBuffer     <- bufferDataEmpty GL_STREAM_DRAW streamingBufferCapacity (Proxy :: Proxy (V4  GLfloat))
     
-    let resetShapeInstanceBuffers = profile 'q' $ withShape cubeShape $ do
+    let resetShapeInstanceBuffers = withShape cubeShape $ do
 
             withArrayBuffer transformsBuffer $ do
                 resetSABBuffer sab transformsBuffer
@@ -178,8 +178,8 @@ openVRLoop window events cubeShape openVR@OpenVR{..} sab transformsBuffer colors
     let viewM44 = inv44 headM44 
 
     writeSAB sab numInstances resetShapeInstanceBuffers $ do
-        fillSABBuffer' pchan transformsBuffer  (generateTransforms t)
-        fillSABBuffer' pchan colorsBuffer      (generateColors t)
+        fillSABBuffer transformsBuffer  (generateTransforms t)
+        fillSABBuffer colorsBuffer      (generateColors t)
 
     -- Render each eye, with multisampling
     forM_ ovrEyes $ \EyeInfo{..} -> withMultisamplingFramebuffer eiMultisampleFramebuffer $ do 
@@ -223,30 +223,3 @@ render cubeShape sab projM44 viewM44 headM44 = do
 
 
 
-
-
--- Call from within writeSAB block
-fillSABBuffer' :: forall a m. (MonadIO m, Storable a, MonadReader (StreamingArrayBuffer, GLuint) m) 
-               => ProfilerChan -> ArrayBuffer a -> (Int -> a) -> m ()
-fillSABBuffer' pchan arrayBuffer getItemForIndex = do
-    (StreamingArrayBuffer{..}, numInstances) <- ask
-    streamOffset <- liftIO $ readIORef stbStreamOffsetRef
-    -- get memory safely
-    withArrayBuffer arrayBuffer $ do
-        bufferPtr <- castPtr <$> glMapBufferRange GL_ARRAY_BUFFER 
-                                                  (fromIntegral streamOffset * fromIntegral (sizeOf (undefined :: a))) 
-                                                  (fromIntegral numInstances * fromIntegral (sizeOf (undefined :: a)))
-                                                  (GL_MAP_WRITE_BIT .|. GL_MAP_UNSYNCHRONIZED_BIT)
-        let _ = bufferPtr :: Ptr a
-
-        -- make sure memory is mapped
-        when (bufferPtr == nullPtr) $
-            error "Failed to map buffer."
-        
-        -- set final data
-        liftIO $ loopM (fromIntegral numInstances) $ \i -> do 
-            pokeElemOff bufferPtr i (getItemForIndex i)
-
-        -- unmap buffer
-        _ <- glUnmapBuffer GL_ARRAY_BUFFER
-        return ()
