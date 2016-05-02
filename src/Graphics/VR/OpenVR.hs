@@ -179,13 +179,13 @@ buttonEventFromC eventType button whichHand
     | eventType == k_VREvent_ButtonUntouch = Just (VREventButtonUntouch whichHand button)
     | otherwise                            = Nothing
 
--- | Temporarily allocate an array of the given size, 
+-- | Temporarily allocate an array of the given size,
 -- pass it to a foreign function, then peek it before it is discarded
 withArray_ :: (Storable a) => Int -> (Ptr a -> IO ()) -> IO [a]
 withArray_ size action = allocaArray size $ \ptr -> do
     _ <- action ptr
     peekArray size ptr
-  
+
 
 -- buildM44WithPtr action = m44FromOpenVRList <$> withArray_ 16 action
 buildM44WithPtr :: (Ptr b -> IO ()) -> IO (M44 GLfloat)
@@ -209,18 +209,18 @@ initOpenVR = liftIO $ do
     systemPtr <- [C.block| void * {
         EVRInitError err = VRInitError_None;
         IVRSystem *system = VR_Init(&err, VRApplication_Scene);
-    
+
         if (system == 0) {
             printf("initOpenVR error: %s\n", VR_GetVRInitErrorAsEnglishDescription(err));
         }
-    
+
         return system;
         } |]
-  
+
     return $ if systemPtr == nullPtr then Nothing else Just (IVRSystem systemPtr)
 
 -- | Gets a reference to the OpenVR Compositor, which is used to submit frames to the headset.
-getCompositor :: MonadIO m => m (Maybe IVRCompositor) 
+getCompositor :: MonadIO m => m (Maybe IVRCompositor)
 getCompositor = liftIO $ do
     compositorPtr <- [C.block| void * {
         EVRInitError error = VRInitError_None;
@@ -246,7 +246,7 @@ getCompositor = liftIO $ do
 -- Double the width if using a single framebuffer for both eyes.
 getRenderTargetSize :: Integral a => MonadIO m => IVRSystem -> m (a, a)
 getRenderTargetSize (IVRSystem systemPtr) = liftIO $ do
-    (w, h) <- C.withPtrs_ $ \(wPtr, hPtr) -> 
+    (w, h) <- C.withPtrs_ $ \(wPtr, hPtr) ->
         [C.block| void {
             IVRSystem *system = (IVRSystem *)$(void* systemPtr);
             system->GetRecommendedRenderTargetSize($(uint32_t* wPtr), $(uint32_t* hPtr));
@@ -261,9 +261,9 @@ getEyeProjectionMatrix (IVRSystem systemPtr) eye (realToFrac -> zNear) (realToFr
     buildM44WithPtr $ \ptr ->
         [C.block|void {
             IVRSystem *system = (IVRSystem *)$(void* systemPtr);
-  
-            EVREye eye = $(int eyeNum) == 0 ? Eye_Left : Eye_Right;    
-        
+
+            EVREye eye = $(int eyeNum) == 0 ? Eye_Left : Eye_Right;
+
             HmdMatrix44_t projection;
             // The C++ API crashes when calling GetProjectionMatrix, so we work around by calling the
             // C API (see cbits/Why.txt)
@@ -281,10 +281,10 @@ getEyeToHeadTransform (IVRSystem systemPtr) eye = liftIO $ do
     let eyeNum = fromIntegral $ fromEnum eye
     buildM44WithPtr $ \ptr ->
         [C.block|void {
-            IVRSystem *system = (IVRSystem *)$(void* systemPtr);    
-  
-            EVREye eye = $(int eyeNum) == 0 ? Eye_Left : Eye_Right;    
-            
+            IVRSystem *system = (IVRSystem *)$(void* systemPtr);
+
+            EVREye eye = $(int eyeNum) == 0 ? Eye_Left : Eye_Right;
+
             // The C++ API crashes when calling GetEyeToHeadTransform, so we work around by calling the
             // C API (see cbits/Why.txt)
             //HmdMatrix34_t transform = system->GetEyeToHeadTransform(eye);
@@ -301,8 +301,8 @@ isUsingLighthouse (IVRSystem systemPtr) = liftIO $ do
             char trackingSystemName[k_unTrackingStringSize];
             ETrackedPropertyError error;
             system->GetStringTrackedDeviceProperty(
-                nDevice, 
-                Prop_TrackingSystemName_String, 
+                nDevice,
+                Prop_TrackingSystemName_String,
                 trackingSystemName, k_unTrackingStringSize, &error);
             if (strcmp(trackingSystemName, "lighthouse") == 0) {
               foundLighthouse = 1;
@@ -343,13 +343,13 @@ showKeyboard = liftIO $ do
     bool bUseMinimalMode = 1;
     uint64_t uUserValue = 0;
     EVROverlayError err = VROverlayError_None;
-    err = VROverlay()->ShowKeyboard( 
-        k_EGamepadTextInputModeNormal, 
-        k_EGamepadTextInputLineModeSingleLine, 
-        pchDescription, 
-        unCharMax, 
-        pchExistingText, 
-        bUseMinimalMode, 
+    err = VROverlay()->ShowKeyboard(
+        k_EGamepadTextInputModeNormal,
+        k_EGamepadTextInputLineModeSingleLine,
+        pchDescription,
+        unCharMax,
+        pchExistingText,
+        bUseMinimalMode,
         uUserValue);
     if (err != VROverlayError_None) {
         printf("Overlay error: %s\n", VROverlay()->GetOverlayErrorNameFromEnum(err));
@@ -390,45 +390,45 @@ pollNextEvent (IVRSystem systemPtr) = liftIO $ do
                 mEvent = do
                     eButton <- ebuttonFromCInt buttonC
                     buttonEventFromC eventTypeC eButton controllerRole
-            forM_ mEvent $ \event -> 
+            forM_ mEvent $ \event ->
                 modifyIORef' buttonEventIORef (++[event])
-  
+
     [C.block|void {
         IVRSystem *system = (IVRSystem *)$(void *systemPtr);
-    
+
         VREvent_t event;
-    
+
         while (system->PollNextEvent(&event, sizeof(event))) {
             uint32_t eventType = event.eventType;
             const char *eventName = system->GetEventTypeNameFromEnum((EVREventType)eventType);
             // printf("Got event type: %s\n", eventName);
-            
+
             if (event.eventType == VREvent_KeyboardCharInput) {
-        
+
                 $fun:(void (*captureCChars)(char*))(event.data.keyboard.cNewInput);
-            } else if (event.eventType == VREvent_ButtonPress || 
-                       event.eventType == VREvent_ButtonUnpress || 
-                       event.eventType == VREvent_ButtonTouch || 
+            } else if (event.eventType == VREvent_ButtonPress ||
+                       event.eventType == VREvent_ButtonUnpress ||
+                       event.eventType == VREvent_ButtonTouch ||
                        event.eventType == VREvent_ButtonUntouch) {
                 uint32_t button = event.data.controller.button;
                 TrackedDeviceIndex_t trackedDeviceIndex = event.trackedDeviceIndex;
 
                 ETrackedControllerRole role = system->GetControllerRoleForTrackedDeviceIndex(trackedDeviceIndex);
-                
+
                 $fun:(void (*captureEvent)(uint32_t, uint32_t, uint32_t))(eventType, role, button);
             }
         }
     }|]
     chars <- readIORef charInputIORef
     events <- readIORef buttonEventIORef
-        
+
     return (if null chars then events else VREventKeyboardCharInput chars : events)
-  
+
 -- | The controller role here corresponds to the ETrackedControllerRole
 getControllerState :: MonadIO m => IVRSystem -> TrackedControllerRole -> m (CFloat, CFloat, CFloat, Bool, Bool)
 getControllerState (IVRSystem systemPtr) controllerRole = liftIO $ do
     let cControllerRole = trackedControllerRoleToC controllerRole
-    (x, y, trigger, grip, start) <- C.withPtrs_ $ \(xPtr, yPtr, triggerPtr, gripPtr, startPtr) -> 
+    (x, y, trigger, grip, start) <- C.withPtrs_ $ \(xPtr, yPtr, triggerPtr, gripPtr, startPtr) ->
         [C.block|void {
             IVRSystem *system = (IVRSystem *)$(void *systemPtr);
 
@@ -437,17 +437,17 @@ getControllerState (IVRSystem systemPtr) controllerRole = liftIO $ do
 
             VRControllerState_t state;
             system->GetControllerState(nDevice, &state);
-            
+
             // for (int nAxis; nAxis < k_unControllerStateAxisCount; nAxis++) {
-            //   printf("%i Axis %i: %f \t%f\n", 
+            //   printf("%i Axis %i: %f \t%f\n",
             //     nDevice,
-            //     nAxis, 
-            //     state.rAxis[nAxis].x, 
+            //     nAxis,
+            //     state.rAxis[nAxis].x,
             //     state.rAxis[nAxis].y);
             // }
             // printf("%i Touched: %i\n", nDevice, state.ulButtonTouched);
             // printf("%i Pressed: %i\n", nDevice, state.ulButtonPressed);
-            
+
             *$(float* xPtr) = state.rAxis[0].x;
             *$(float* yPtr) = state.rAxis[0].y;
 
@@ -481,7 +481,7 @@ waitGetPoses OpenVR{..} = liftIO $ do
         float* m44DevicePoses = $vec-ptr:(float *m44DevicePoses);
         TrackedDevicePose_t* rawDevicePoses = (TrackedDevicePose_t*)$vec-ptr:(float *rawDevicePoses);
 
-        compositor->WaitGetPoses( 
+        compositor->WaitGetPoses(
             rawDevicePoses, k_unMaxTrackedDeviceCount, NULL, 0);
 
         for (int nDevice = 0; nDevice < k_unMaxTrackedDeviceCount; nDevice++) {
@@ -491,28 +491,37 @@ waitGetPoses OpenVR{..} = liftIO $ do
 
                 if (deviceClass == TrackedDeviceClass_HMD ||
                     deviceClass == TrackedDeviceClass_Controller) {
-                    
+
                     HmdMatrix34_t deviceTransform = pose.mDeviceToAbsoluteTracking;
-                    // TODO: could do the transpose immediately 
+                    // TODO: could do the transpose immediately
                     // here rather than down below in Haskell
                     fillFromMatrix34(deviceTransform, m44DevicePoses + (nDevice * 16));
 
-                    controllerRoles[nDevice] = system->GetControllerRoleForTrackedDeviceIndex(nDevice);
+                    // OpenVR seems to identify the headset as a hand
+                    // if we call GetTrackedDeviceIndexForControllerRole
+                    // on it, so we check that manually.
+                    if (deviceClass == TrackedDeviceClass_Controller) {
+                        controllerRoles[nDevice] = system->GetControllerRoleForTrackedDeviceIndex(nDevice);
+                    } else {
+                        controllerRoles[nDevice] = TrackedControllerRole_Invalid;
+                    }
+
                 }
             }
         }
         }|]
-    
+
     headM44 <- transpose <$> VM.read vrmM44DevicePoses trackedDeviceIndexHMD
     let roles = [TrackedControllerRoleLeftHand, TrackedControllerRoleRightHand]
     frozenControllerRoles <- V.freeze vrmControllerRoles
+
     posesByRole <- fmap catMaybes . forM roles $ \role -> do
         let cRole = trackedControllerRoleToC role
             maybeIndex = V.elemIndex cRole frozenControllerRoles
         forM maybeIndex $ \i -> do
             pose <- transpose <$> VM.read vrmM44DevicePoses i
             return (role,pose)
-    
+
     return (headM44, posesByRole)
 
 -- | Submits a frame for the given eye
@@ -522,14 +531,14 @@ submitFrameForEye (IVRCompositor compositorPtr) eye (fromIntegral -> framebuffer
     [C.block|void {
         IVRCompositor *compositor = (IVRCompositor *)$(void *compositorPtr);
         EVREye eye = $(int eyeNum) == 0 ? Eye_Left : Eye_Right;
-    
-        Texture_t texture = { 
-            (void*)$(unsigned long long framebufferTextureID), 
+
+        Texture_t texture = {
+            (void*)$(unsigned long long framebufferTextureID),
             API_OpenGL,
             ColorSpace_Linear
         };
-    
-        compositor->Submit(eye, 
+
+        compositor->Submit(eye,
             &texture, NULL, Submit_Default);
     }|]
 
@@ -540,7 +549,7 @@ submitFrameForEye (IVRCompositor compositorPtr) eye (fromIntegral -> framebuffer
 createOpenVR :: IO (Maybe OpenVR)
 createOpenVR = do
     mSystem <- initOpenVR
-  
+
     case mSystem of
         Nothing -> putStrLn "Couldn't create OpenVR system :*(" >> return Nothing
         Just system -> do
@@ -548,7 +557,7 @@ createOpenVR = do
             eyes <- forM [LeftEye, RightEye] $ \eye -> do
                 eyeProj  <- getEyeProjectionMatrix system eye 0.1 10000
                 eyeTrans <- inv44 <$> getEyeToHeadTransform system eye
-        
+
                 multisampleFramebuffer <- createMultisampleFramebuffer (fromIntegral w) (fromIntegral h)
                 return EyeInfo
                     { eiEye = eye
@@ -557,7 +566,7 @@ createOpenVR = do
                     , eiViewport = (0, 0, w, h)
                     , eiMultisampleFramebuffer = multisampleFramebuffer
                     }
-      
+
             mCompositor <- getCompositor
             case mCompositor of
                 Nothing -> putStrLn "Couldn't create OpenVR compositor :*(" >> return Nothing
@@ -574,7 +583,7 @@ createOpenVR = do
 
 createOpenVRMutable :: IO OpenVRMutable
 createOpenVRMutable = do
-    vrmRawDevicePoses    <- VM.new maxTrackedDeviceCount 
+    vrmRawDevicePoses    <- VM.new maxTrackedDeviceCount
     vrmM44DevicePoses    <- VM.new maxTrackedDeviceCount
     vrmControllerRoles   <- VM.new maxTrackedDeviceCount
     return OpenVRMutable{..}
@@ -582,9 +591,9 @@ createOpenVRMutable = do
 mirrorOpenVREyeToWindow :: MonadIO m => EyeInfo -> m ()
 mirrorOpenVREyeToWindow EyeInfo{..} = when (eiEye == LeftEye) $ do
     let (x, y, w, h) = eiViewport
-  
+
     glBindFramebuffer GL_READ_FRAMEBUFFER (unFramebuffer (mfbResolveFramebufferID eiMultisampleFramebuffer))
     glBindFramebuffer GL_DRAW_FRAMEBUFFER 0
-  
+
     glBlitFramebuffer x y w h x y w h GL_COLOR_BUFFER_BIT GL_LINEAR
     return ()
