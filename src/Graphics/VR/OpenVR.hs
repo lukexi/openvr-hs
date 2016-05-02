@@ -492,8 +492,10 @@ waitGetPoses OpenVR{..} = liftIO $ do
                 if (deviceClass == TrackedDeviceClass_HMD ||
                     deviceClass == TrackedDeviceClass_Controller) {
                     
-                    HmdMatrix34_t transform = pose.mDeviceToAbsoluteTracking;
-                    fillFromMatrix34(transform, m44DevicePoses + (nDevice * 16));
+                    HmdMatrix34_t deviceTransform = pose.mDeviceToAbsoluteTracking;
+                    // TODO: could do the transpose immediately 
+                    // here rather than down below in Haskell
+                    fillFromMatrix34(deviceTransform, m44DevicePoses + (nDevice * 16));
 
                     controllerRoles[nDevice] = system->GetControllerRoleForTrackedDeviceIndex(nDevice);
                 }
@@ -501,14 +503,14 @@ waitGetPoses OpenVR{..} = liftIO $ do
         }
         }|]
     
-    headM44 <- VM.read vrmM44DevicePoses trackedDeviceIndexHMD
+    headM44 <- transpose <$> VM.read vrmM44DevicePoses trackedDeviceIndexHMD
     let roles = [TrackedControllerRoleLeftHand, TrackedControllerRoleRightHand]
     frozenControllerRoles <- V.freeze vrmControllerRoles
     posesByRole <- fmap catMaybes . forM roles $ \role -> do
         let cRole = trackedControllerRoleToC role
             maybeIndex = V.elemIndex cRole frozenControllerRoles
         forM maybeIndex $ \i -> do
-            pose <- VM.read vrmM44DevicePoses i
+            pose <- transpose <$> VM.read vrmM44DevicePoses i
             return (role,pose)
     
     return (headM44, posesByRole)

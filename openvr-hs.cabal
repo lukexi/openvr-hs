@@ -38,7 +38,7 @@ library
     extra-lib-dirs:    c:\msys64\usr\local\bin 
     cc-options:        -fno-exceptions -std=c++0x
 
-test-suite demo
+test-suite cubes
   type:                exitcode-stdio-1.0
   hs-source-dirs:      app
   main-is:             Main.hs
@@ -58,8 +58,8 @@ test-suite demo
 
 -- Needs to be an executable to profile it 
 -- (must comment out "type:" field)
--- executable demo-instanced
-test-suite demo-instanced
+-- executable cubes-instanced
+test-suite cubes-instanced
   type:                exitcode-stdio-1.0
   hs-source-dirs:      app
   main-is:             MainI.hs

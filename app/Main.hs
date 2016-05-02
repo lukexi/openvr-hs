@@ -153,7 +153,8 @@ openVRLoop window events cubeShape openVR@OpenVR{..} = whileWindow window $ do
     forM_ (listToMaybe ovrEyes) $ \eye ->
         mirrorOpenVREyeToWindow eye
     
-    processEvents events $ closeOnEscape window
+    evs <- gatherEvents events
+    forM_ evs $ closeOnEscape window
   
     swapBuffers window
 
@@ -165,7 +166,8 @@ flatLoop window events cubeShape = do
     projectionMat <- getWindowProjection window 45 0.1 1000
     (x,y,w,h)     <- getWindowViewport window
     whileWindow window $ do
-        processEvents events (closeOnEscape window)
+        evs <- gatherEvents events
+        forM_ evs $ closeOnEscape window
     
         now <- (/ 2) . (+ 1) . sin . realToFrac . utctDayTime <$> liftIO getCurrentTime
         glClearColor now 0.2 0.5 1
@@ -206,5 +208,5 @@ draw model projectionView shape = do
     uniformM44 uModelViewProjection (projectionView !*! model)
     uniformM44 uModel               model
     
-    let vc = geoVertCount (sGeometry shape)
-    glDrawElements GL_TRIANGLES vc GL_UNSIGNED_INT nullPtr
+    let indexCount = geoIndexCount (sGeometry shape)
+    glDrawElements GL_TRIANGLES indexCount GL_UNSIGNED_INT nullPtr

@@ -166,7 +166,8 @@ openVRLoop :: MonadIO m
 openVRLoop window events cubeShape openVR@OpenVR{..} sab transformsBuffer colorsBuffer resetShapeInstanceBuffers = whileWindow window $ do
 
     --profile 'g' $ liftIO performMinorGC
-    processEvents events $ closeOnEscape window
+    evs <- gatherEvents events
+    forM_ evs $ closeOnEscape window
     _ <- pollNextEvent ovrSystem
     (headM44, handPosesByRole) <- waitGetPoses openVR
     
