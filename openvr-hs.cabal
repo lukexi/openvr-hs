@@ -23,6 +23,7 @@ library
                      , mtl
                      , gl-pal
                      , raw-strings-qq
+                     , vector
   default-language:    Haskell2010
   include-dirs:        openvr/headers, cbits
   c-sources:           src/Graphics/VR/OpenVR.cpp
@@ -55,7 +56,8 @@ test-suite demo
   other-modules:       Cube
                        CubeUniforms
 
--- Needs to be an executable to profile it (and comment out type:)
+-- Needs to be an executable to profile it 
+-- (must comment out "type:" field)
 -- executable demo-instanced
 test-suite demo-instanced
   type:                exitcode-stdio-1.0
@@ -74,21 +76,6 @@ test-suite demo-instanced
                      , time
                      , vector
                      , clock
-  default-language:    Haskell2010
-
-test-suite test-cpp
-  type:                exitcode-stdio-1.0
-  hs-source-dirs:      app
-  main-is:             TestCPP.hs
-  ghc-options:         -O2 -Wall -threaded -rtsopts -with-rtsopts=-N
-  build-depends:       base
-                     , openvr-hs
-                     , gl-pal
-                     , glfw-pal
-                     , linear-extra
-                     , lens-extra
-                     , mtl
-                     , time
   default-language:    Haskell2010
 
 source-repository head

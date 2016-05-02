@@ -14,14 +14,17 @@ import qualified Language.C.Inline.Cpp as C
 import Control.Monad.Trans
 import Data.Monoid
 import Linear.Extra
-import Text.RawString.QQ (r)
+--import Text.RawString.QQ (r)
+--import Control.Arrow
 import Graphics.GL.Pal
 import Control.Monad
-import Control.Arrow
 import Data.IORef
+import Data.Maybe
+import qualified Data.Vector.Storable.Mutable as VM
+import qualified Data.Vector.Storable as V
 
--- Set up inline-c to gain Cpp and Function Pointer abilities
-C.context (C.cppCtx <> C.funCtx)
+-- Set up inline-c to gain Cpp, Function Pointer, and Vector abilities
+C.context (C.cppCtx <> C.funCtx <> C.vecCtx)
 
 -- Import OpenVR
 C.include "openvr.h"
@@ -45,6 +48,13 @@ data OpenVR = OpenVR
     { ovrSystem     :: IVRSystem
     , ovrCompositor :: IVRCompositor
     , ovrEyes       :: [EyeInfo]
+    , ovrMutable    :: OpenVRMutable
+    }
+
+data OpenVRMutable = OpenVRMutable
+    { vrmRawDevicePoses  :: VM.IOVector (M34 GLfloat)
+    , vrmM44DevicePoses  :: VM.IOVector (M44 GLfloat)
+    , vrmControllerRoles :: VM.IOVector CInt
     }
 
 newtype IVRSystem     = IVRSystem     { unIVRSystem     :: Ptr () } deriving Show
@@ -62,9 +72,16 @@ data TrackedControllerRole = TrackedControllerRoleInvalid
                            | TrackedControllerRoleRightHand
                            deriving (Eq, Show, Enum, Ord)
 trackedControllerRoleToC :: TrackedControllerRole -> CInt
-trackedControllerRoleToC TrackedControllerRoleInvalid     = [C.pure|int{TrackedControllerRole_Invalid}|]
-trackedControllerRoleToC TrackedControllerRoleLeftHand    = [C.pure|int{TrackedControllerRole_LeftHand}|]
-trackedControllerRoleToC TrackedControllerRoleRightHand   = [C.pure|int{TrackedControllerRole_RightHand}|]
+trackedControllerRoleToC TrackedControllerRoleInvalid     = k_TrackedControllerRole_Invalid
+trackedControllerRoleToC TrackedControllerRoleLeftHand    = k_TrackedControllerRole_LeftHand
+trackedControllerRoleToC TrackedControllerRoleRightHand   = k_TrackedControllerRole_RightHand
+
+k_TrackedControllerRole_Invalid :: CInt
+k_TrackedControllerRole_Invalid   = [C.pure|int{TrackedControllerRole_Invalid}|]
+k_TrackedControllerRole_LeftHand :: CInt
+k_TrackedControllerRole_LeftHand  = [C.pure|int{TrackedControllerRole_LeftHand}|]
+k_TrackedControllerRole_RightHand :: CInt
+k_TrackedControllerRole_RightHand = [C.pure|int{TrackedControllerRole_RightHand}|]
 
 data HmdEye = LeftEye | RightEye deriving (Enum, Eq, Show)
 
@@ -76,6 +93,10 @@ data TrackedDeviceClass = TrackedDeviceClassInvalid
 
 maxTrackedDeviceCount :: Num b => b
 maxTrackedDeviceCount = fromIntegral [C.pure|int{k_unMaxTrackedDeviceCount}|]
+
+
+trackedDeviceIndexHMD :: Num b => b
+trackedDeviceIndexHMD = fromIntegral [C.pure|int{k_unTrackedDeviceIndex_Hmd}|]
 
 trackedDeviceClassToC :: TrackedDeviceClass -> CInt
 trackedDeviceClassToC TrackedDeviceClassInvalid           = [C.pure|int{TrackedDeviceClass_Invalid}|]
@@ -175,14 +196,6 @@ buildM44WithPtr action = fmap transpose . alloca $ \ptr -> do
 
 buildM44sWithPtr :: Int -> (Ptr a -> IO ()) -> IO [M44 GLfloat]
 buildM44sWithPtr count action = fmap transpose <$> withArray_ count (action . castPtr)
-
-
-C.verbatim [r|
-
-#define g_trackedDevicePosesCount 16
-TrackedDevicePose_t g_trackedDevicePoses[g_trackedDevicePosesCount];
-
-|]
 
 isHMDPresent :: MonadIO m => m Bool
 isHMDPresent = toEnum . fromIntegral <$> liftIO [C.block| int {
@@ -450,66 +463,55 @@ getControllerState (IVRSystem systemPtr) controllerRole = liftIO $ do
       }|]
     return (x, y, trigger, grip /= 0, start /= 0)
 
+
 -- | Get the roles and matrices for the current frame.
--- (Nb. this function could use a few improvements : ) — we're using globals 
--- g_trackedDevicePoses and g_trackedDevicePosesCount just for storing
--- the poses across FFI calls to then pack them into M44s. 
--- Better would be to preallocate some memory in initOpenVR, 
--- write to it with one FFI call here, return the count, then pull the data into Haskell land.
-waitGetPoses :: (MonadIO m) => IVRCompositor -> IVRSystem -> m (M44 GLfloat, [(TrackedControllerRole, M44 GLfloat)])
-waitGetPoses (IVRCompositor compositorPtr) (IVRSystem systemPtr) = liftIO $ do
-  
-    -- First count how many valid HMD and controller poses exist so we can allocate an array
-    numPoses <- fromIntegral <$> [C.block|int {
+waitGetPoses :: MonadIO m => OpenVR -> m (M44 GLfloat, [(TrackedControllerRole, M44 GLfloat)])
+waitGetPoses OpenVR{..} = liftIO $ do
+    let IVRCompositor compositorPtr = ovrCompositor
+        IVRSystem     systemPtr     = ovrSystem
+        OpenVRMutable{..}           = ovrMutable
+
+        rawDevicePoses = VM.unsafeCast vrmRawDevicePoses
+        m44DevicePoses = VM.unsafeCast vrmM44DevicePoses
+    [C.block| void {
         IVRCompositor *compositor = (IVRCompositor *)$(void *compositorPtr);
         IVRSystem *system = (IVRSystem *)$(void *systemPtr);
-        int numPoses = 0;
+
+        int* controllerRoles  = $vec-ptr:(int   *vrmControllerRoles);
+        float* m44DevicePoses = $vec-ptr:(float *m44DevicePoses);
+        TrackedDevicePose_t* rawDevicePoses = (TrackedDevicePose_t*)$vec-ptr:(float *rawDevicePoses);
+
         compositor->WaitGetPoses( 
-            g_trackedDevicePoses, g_trackedDevicePosesCount, NULL, 0);
-        for (int nDevice = 0; nDevice < g_trackedDevicePosesCount; nDevice++) {
-            TrackedDevicePose_t pose = g_trackedDevicePoses[nDevice];
+            rawDevicePoses, k_unMaxTrackedDeviceCount, NULL, 0);
+
+        for (int nDevice = 0; nDevice < k_unMaxTrackedDeviceCount; nDevice++) {
+            TrackedDevicePose_t pose = rawDevicePoses[nDevice];
             if (pose.bPoseIsValid) {
                 ETrackedDeviceClass deviceClass = system->GetTrackedDeviceClass(nDevice);
+
                 if (deviceClass == TrackedDeviceClass_HMD ||
                     deviceClass == TrackedDeviceClass_Controller) {
-                    numPoses++;
+                    
+                    HmdMatrix34_t transform = pose.mDeviceToAbsoluteTracking;
+                    fillFromMatrix34(transform, m44DevicePoses + (nDevice * 16));
+
+                    controllerRoles[nDevice] = system->GetControllerRoleForTrackedDeviceIndex(nDevice);
                 }
             }
         }
-        return numPoses;
         }|]
-  
-    -- Then fill our coffers with them
-    -- Also nab the roles so we can match up a controller poses with their states
-    (matrices, roles) <- allocaArray numPoses $ \rolesPtr -> do
-        matrices <- buildM44sWithPtr numPoses $ \matricesPtr -> 
-            [C.block|void {
-                IVRSystem *system = (IVRSystem *)$(void *systemPtr);
-                int* roles = $(int* rolesPtr);
-                float* matrices = $(float* matricesPtr);
-                int offset = 0;
-                for (int nDevice = 0; nDevice < g_trackedDevicePosesCount; nDevice++) {
-                    TrackedDevicePose_t pose = g_trackedDevicePoses[nDevice];
-                    if (pose.bPoseIsValid) {
-                        ETrackedDeviceClass deviceClass = system->GetTrackedDeviceClass(nDevice);
-                        if (deviceClass == TrackedDeviceClass_HMD ||
-                            deviceClass == TrackedDeviceClass_Controller) {
-                            HmdMatrix34_t transform = pose.mDeviceToAbsoluteTracking;
-                            fillFromMatrix34(transform, matrices + 16 * offset);
-                            roles[offset] = system->GetControllerRoleForTrackedDeviceIndex(nDevice);
-                            offset++;
-                        }
-                    }
-                }
-            }|]
-        roles <- peekArray numPoses rolesPtr
-        return (matrices, roles)
-  
-    -- Assumes head will be the first matrix, followed by any controllers.
-    return $ case zip roles matrices of
-        []   -> (identity, [])
-        x:xs -> (snd x, map (first (toEnum . fromIntegral)) xs)
-
+    
+    headM44 <- VM.read vrmM44DevicePoses trackedDeviceIndexHMD
+    let roles = [TrackedControllerRoleLeftHand, TrackedControllerRoleRightHand]
+    frozenControllerRoles <- V.freeze vrmControllerRoles
+    posesByRole <- fmap catMaybes . forM roles $ \role -> do
+        let cRole = trackedControllerRoleToC role
+            maybeIndex = V.elemIndex cRole frozenControllerRoles
+        forM maybeIndex $ \i -> do
+            pose <- VM.read vrmM44DevicePoses i
+            return (role,pose)
+    
+    return (headM44, posesByRole)
 
 -- | Submits a frame for the given eye
 submitFrameForEye :: (Integral a, MonadIO m) => IVRCompositor -> HmdEye -> a -> m ()
@@ -558,12 +560,22 @@ createOpenVR = do
             case mCompositor of
                 Nothing -> putStrLn "Couldn't create OpenVR compositor :*(" >> return Nothing
                 Just compositor -> do
+
+                    mutableData <- createOpenVRMutable
                     -- showMirrorWindow compositor
                     return . Just $ OpenVR
                         { ovrSystem = system
                         , ovrCompositor = compositor
                         , ovrEyes = eyes
+                        , ovrMutable = mutableData
                         }
+
+createOpenVRMutable :: IO OpenVRMutable
+createOpenVRMutable = do
+    vrmRawDevicePoses    <- VM.new maxTrackedDeviceCount 
+    vrmM44DevicePoses    <- VM.new maxTrackedDeviceCount
+    vrmControllerRoles   <- VM.new maxTrackedDeviceCount
+    return OpenVRMutable{..}
 
 mirrorOpenVREyeToWindow :: MonadIO m => EyeInfo -> m ()
 mirrorOpenVREyeToWindow EyeInfo{..} = when (eiEye == LeftEye) $ do

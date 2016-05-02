@@ -79,9 +79,9 @@ main = do
 
 
 openVRLoop :: (MonadState World m, MonadIO m) => Window -> Events -> Shape Uniforms -> OpenVR -> m ()
-openVRLoop window events cubeShape OpenVR{..} = whileWindow window $ do
+openVRLoop window events cubeShape openVR@OpenVR{..} = whileWindow window $ do
     _ <- pollNextEvent ovrSystem
-    (headPose, handPosesByRole) <- waitGetPoses ovrCompositor ovrSystem
+    (headPose, handPosesByRole) <- waitGetPoses openVR
   
     hands <- forM handPosesByRole $ \(controllerRole, pose) -> do
         (x, y, trigger, grip, start) <- getControllerState ovrSystem controllerRole

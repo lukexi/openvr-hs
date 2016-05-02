@@ -168,7 +168,7 @@ openVRLoop window events cubeShape openVR@OpenVR{..} sab transformsBuffer colors
     --profile 'g' $ liftIO performMinorGC
     processEvents events $ closeOnEscape window
     _ <- pollNextEvent ovrSystem
-    (headM44, handPosesByRole) <- waitGetPoses ovrCompositor ovrSystem
+    (headM44, handPosesByRole) <- waitGetPoses openVR
     
     _hands <- handsFromPoses openVR handPosesByRole
 
