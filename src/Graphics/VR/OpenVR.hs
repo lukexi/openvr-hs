@@ -588,12 +588,16 @@ createOpenVRMutable = do
     vrmControllerRoles   <- VM.new maxTrackedDeviceCount
     return OpenVRMutable{..}
 
-mirrorOpenVREyeToWindow :: MonadIO m => EyeInfo -> m ()
-mirrorOpenVREyeToWindow EyeInfo{..} = when (eiEye == LeftEye) $ do
+mirrorOpenVREyeToWindow :: MonadIO m => EyeInfo -> GLint -> GLint -> m ()
+mirrorOpenVREyeToWindow EyeInfo{..} winW winH = when (eiEye == LeftEye) $ do
     let (x, y, w, h) = eiViewport
 
     glBindFramebuffer GL_READ_FRAMEBUFFER (unFramebuffer (mfbResolveFramebufferID eiMultisampleFramebuffer))
     glBindFramebuffer GL_DRAW_FRAMEBUFFER 0
 
-    glBlitFramebuffer x y w h x y w h GL_COLOR_BUFFER_BIT GL_LINEAR
+    let dstX0 = (winW - w) `div` 2
+        dstY0 = (winH - h) `div` 2
+        dstX1 = dstX0 + w
+        dstY1 = dstY0 + h
+    glBlitFramebuffer x y w h dstX0 dstY0 dstX1 dstY1 GL_COLOR_BUFFER_BIT GL_LINEAR
     return ()
