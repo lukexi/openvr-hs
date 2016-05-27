@@ -601,3 +601,11 @@ mirrorOpenVREyeToWindow EyeInfo{..} winW winH = when (eiEye == LeftEye) $ do
         dstY1 = dstY0 + h
     glBlitFramebuffer x y w h dstX0 dstY0 dstX1 dstY1 GL_COLOR_BUFFER_BIT GL_LINEAR
     return ()
+
+fadeCompositorToColor :: MonadIO m => IVRCompositor -> V4 GLfloat -> GLfloat -> m ()
+fadeCompositorToColor (IVRCompositor compositorPtr) (fmap realToFrac -> V4 r g b a) (realToFrac -> seconds) = liftIO $ do
+
+    [C.block|void {
+        IVRCompositor *compositor = (IVRCompositor *)$(void *compositorPtr);
+        compositor->FadeToColor( $(float seconds), $(float r), $(float g), $(float b), $(float a) );
+    }|]
