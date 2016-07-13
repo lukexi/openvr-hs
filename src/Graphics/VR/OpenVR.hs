@@ -574,11 +574,24 @@ submitFrameForEye (IVRCompositor compositorPtr) eye (fromIntegral -> framebuffer
     }|]
 
 
+data OpenVRConfig = OpenVRConfig
+    { ovcZNear       :: !GLfloat
+    , ovcZFar        :: !GLfloat
+    , ovcMSAASamples :: !MSAASamples
+    }
 
-
+defaultOpenVRConfig :: OpenVRConfig
+defaultOpenVRConfig = OpenVRConfig
+    { ovcZNear = 0.1
+    , ovcZFar = 10000
+    , ovcMSAASamples = MSAASamples16
+    }
 
 createOpenVR :: IO (Maybe OpenVR)
-createOpenVR = do
+createOpenVR = createOpenVRWithConfig defaultOpenVRConfig
+
+createOpenVRWithConfig :: OpenVRConfig -> IO (Maybe OpenVR)
+createOpenVRWithConfig OpenVRConfig{..} = do
     mSystem <- initOpenVR
 
     case mSystem of
@@ -586,12 +599,13 @@ createOpenVR = do
         Just system -> do
             (w,h) <- getRenderTargetSize system
             eyes <- forM [LeftEye, RightEye] $ \eye -> do
-                eyeProj    <- getEyeProjectionMatrix system eye 0.1 10000
+                eyeProj    <- getEyeProjectionMatrix system eye ovcZNear ovcZFar
                 eyeProjRaw <- getEyeProjectionMatrixRaw system eye
                 --let eyeProjRaw = 0
                 eyeTrans <- inv44 <$> getEyeToHeadTransform system eye
 
-                multisampleFramebuffer <- createMultisampleFramebuffer (fromIntegral w) (fromIntegral h)
+                multisampleFramebuffer <- createMultisampleFramebuffer
+                    ovcMSAASamples (fromIntegral w) (fromIntegral h)
                 return EyeInfo
                     { eiEye = eye
                     , eiProjection = eyeProj
