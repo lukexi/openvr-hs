@@ -35,8 +35,24 @@ library
   if os(windows)
     extra-libraries:   libstdc++-6
     -- We store openvr_api.dll in /usr/local/bin
-    extra-lib-dirs:    c:\msys64\usr\local\bin 
+    extra-lib-dirs:    c:\msys64\usr\local\bin
     cc-options:        -fno-exceptions -std=c++0x
+
+test-suite minimal
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      app
+  main-is:             Minimal.hs
+  ghc-options:         -O2 -Wall -threaded -rtsopts -with-rtsopts=-N
+  build-depends:       base
+                     , halive
+                     , openvr-hs
+                     , gl-pal
+                     , glfw-pal
+                     , linear-extra
+                     , lens-extra
+                     , mtl
+                     , time
+  default-language:    Haskell2010
 
 test-suite cubes
   type:                exitcode-stdio-1.0
@@ -56,15 +72,15 @@ test-suite cubes
   other-modules:       Cube
                        CubeUniforms
 
--- Needs to be an executable to profile it 
+-- Needs to be an executable to profile it
 -- (must comment out "type:" field)
 -- executable cubes-instanced
 test-suite cubes-instanced
   type:                exitcode-stdio-1.0
   hs-source-dirs:      app
   main-is:             MainI.hs
-  ghc-options:         -O2 -Wall -threaded -rtsopts "-with-rtsopts=-N -H512M -A4M" 
-  ghc-prof-options:    -O2 -Wall -threaded -rtsopts -prof -fprof-auto "-with-rtsopts=-N -T -p -S -H512M -A4M -L100"
+  ghc-options:         -O2 -Wall -threaded -rtsopts "-with-rtsopts=-N -H512M -A4M"
+  -- ghc-prof-options:    -O2 -Wall -threaded -rtsopts -prof -fprof-auto "-with-rtsopts=-N -T -p -S -H512M -A4M -L100"
   build-depends:       base
                      , halive
                      , openvr-hs

@@ -7,6 +7,7 @@
 #endif
 
 EXTERN_C void copyProjectionMatrixForEye(int eye, float znear, float zfar, float *out);
+EXTERN_C void copyProjectionRawForEye(int eye, float *pfLeft, float *pfRight, float *pfTop, float *pfBottom);
 
 EXTERN_C void copyEyeToHeadTransformForEye(int eye, float *out);
 

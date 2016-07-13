@@ -9,7 +9,7 @@ struct VR_IVRSystem_FnTable *VRSystemFnTable() {
     int result = sprintf(fnTableName, "FnTable:%s", IVRSystem_Version);
 
 	EVRInitError initError;
-    struct VR_IVRSystem_FnTable *fnTable = 
+    struct VR_IVRSystem_FnTable *fnTable =
     	(struct VR_IVRSystem_FnTable *)VR_GetGenericInterface(fnTableName, &initError);
 
     if (fnTable == 0) {
@@ -20,14 +20,23 @@ struct VR_IVRSystem_FnTable *VRSystemFnTable() {
 }
 
 void copyProjectionMatrixForEye(int eye, float znear, float zfar, float *out) {
-	
+
 	struct VR_IVRSystem_FnTable *vrSystem = VRSystemFnTable();
 
     HmdMatrix44_t matrix = vrSystem->GetProjectionMatrix(
-    	eye == 0 ? EVREye_Eye_Left : EVREye_Eye_Right, 
+    	eye == 0 ? EVREye_Eye_Left : EVREye_Eye_Right,
     	znear, zfar, EGraphicsAPIConvention_API_OpenGL);
 
     fillFromMatrix44(matrix, out);
+}
+
+void copyProjectionRawForEye(int eye, float *pfLeft, float *pfRight, float *pfTop, float *pfBottom) {
+
+    struct VR_IVRSystem_FnTable *vrSystem = VRSystemFnTable();
+
+    vrSystem->GetProjectionRaw(
+        eye == 0 ? EVREye_Eye_Left : EVREye_Eye_Right,
+        pfLeft, pfRight, pfTop, pfBottom);
 }
 
 void copyEyeToHeadTransformForEye(int eye, float *out) {
@@ -41,7 +50,7 @@ void copyEyeToHeadTransformForEye(int eye, float *out) {
 
 
 void fillFromMatrix44(HmdMatrix44_t matrix, float* out) {
-  
+
     out[0]  = matrix.m[0][0];
     out[1]  = matrix.m[1][0];
     out[2]  = matrix.m[2][0];
@@ -61,7 +70,7 @@ void fillFromMatrix44(HmdMatrix44_t matrix, float* out) {
 }
 
 void fillFromMatrix34(HmdMatrix34_t matrix, float* out) {
-  
+
     out[0]  = matrix.m[0][0];
     out[1]  = matrix.m[1][0];
     out[2]  = matrix.m[2][0];

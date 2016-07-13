@@ -2,9 +2,11 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
 {-# LANGUAGE RecordWildCards #-}
+
 module Graphics.VR.OpenVR where
 
 import Foreign
@@ -27,9 +29,11 @@ import qualified Data.Vector.Storable as V
 C.context (C.cppCtx <> C.funCtx <> C.vecCtx)
 
 -- Import OpenVR
-C.include "openvr.h"
+--C.include "openvr.h"
+C.include "openvr_mingw.h"
 C.include "stdio.h"
 C.include "string.h"
+C.include "malloc.h"
 
 C.using "namespace vr"
 
@@ -38,6 +42,7 @@ C.include "openvr_capi_helper.h"
 data EyeInfo = EyeInfo
     { eiEye                    :: HmdEye
     , eiProjection             :: M44 GLfloat
+    , eiProjectionRaw          :: V4 GLfloat
     , eiEyeHeadTrans           :: M44 GLfloat
     , eiViewport               :: (GLint, GLint, GLsizei, GLsizei)
     , eiMultisampleFramebuffer :: MultisampleFramebuffer
@@ -52,9 +57,9 @@ data OpenVR = OpenVR
     }
 
 data OpenVRMutable = OpenVRMutable
-    { vrmRawDevicePoses  :: VM.IOVector (M34 GLfloat)
-    , vrmM44DevicePoses  :: VM.IOVector (M44 GLfloat)
-    , vrmControllerRoles :: VM.IOVector CInt
+    { vrmRawDevicePosesPtr :: Ptr () -- ^ Just a temporary block of memory reused each time we copy the poses from waitGetPoses. Only accessed in C++ so no vector needed.
+    , vrmM44DevicePoses    :: VM.IOVector (M44 GLfloat)
+    , vrmControllerRoles   :: VM.IOVector CInt
     }
 
 newtype IVRSystem     = IVRSystem     { unIVRSystem     :: Ptr () } deriving Show
@@ -264,15 +269,41 @@ getEyeProjectionMatrix (IVRSystem systemPtr) eye (realToFrac -> zNear) (realToFr
 
             EVREye eye = $(int eyeNum) == 0 ? Eye_Left : Eye_Right;
 
-            HmdMatrix44_t projection;
             // The C++ API crashes when calling GetProjectionMatrix, so we work around by calling the
             // C API (see cbits/Why.txt)
-            //HmdMatrix44_t projection = VRSystem()->GetProjectionMatrix(
-            //    eye, $(float zNear), $(float zFar), API_OpenGL);
-            //fillFromMatrix44(projection, $(float* ptr));
+            HmdMatrix44_t projection = VRSystem()->GetProjectionMatrix(
+                eye, $(float zNear), $(float zFar), API_OpenGL);
+            fillFromMatrix44(projection, $(float* ptr));
 
-            copyProjectionMatrixForEye((int)eye, $(float zNear), $(float zFar), $(float* ptr));
+            //copyProjectionMatrixForEye((int)eye, $(float zNear), $(float zFar), $(float* ptr));
         }|]
+
+getEyeProjectionMatrixRaw :: (MonadIO m) => IVRSystem -> HmdEye -> m (V4 GLfloat)
+getEyeProjectionMatrixRaw (IVRSystem systemPtr) eye = liftIO $ do
+    let eyeNum = fromIntegral $ fromEnum eye
+
+    proj <- buildWithPtr $ \ptr -> do
+        [C.block|void {
+            IVRSystem *system = (IVRSystem *)$(void* systemPtr);
+            float *ptr = $(float *ptr);
+
+            EVREye eye = $(int eyeNum) == 0 ? Eye_Left : Eye_Right;
+            // Seems openvr_mingw works to replace the wrapper
+            // copyProjectionRawForEye(eye,
+            system->GetProjectionRaw(eye,
+                ptr + 0,
+                ptr + 1,
+                ptr + 2,
+                ptr + 3);
+        }|]
+    let _ = proj :: V4 CFloat
+    return (realToFrac <$> proj)
+
+
+buildWithPtr :: (Storable a) => (Ptr b -> IO ()) -> IO a
+buildWithPtr action = alloca $ \ptr -> do
+    action (castPtr ptr)
+    peek ptr
 
 
 -- | Returns the offset of each eye from the head pose.
@@ -470,16 +501,16 @@ waitGetPoses OpenVR{..} = liftIO $ do
     let IVRCompositor compositorPtr = ovrCompositor
         IVRSystem     systemPtr     = ovrSystem
         OpenVRMutable{..}           = ovrMutable
-
-        rawDevicePoses = VM.unsafeCast vrmRawDevicePoses
         m44DevicePoses = VM.unsafeCast vrmM44DevicePoses
+
+
     [C.block| void {
         IVRCompositor *compositor = (IVRCompositor *)$(void *compositorPtr);
         IVRSystem *system = (IVRSystem *)$(void *systemPtr);
 
         int* controllerRoles  = $vec-ptr:(int   *vrmControllerRoles);
         float* m44DevicePoses = $vec-ptr:(float *m44DevicePoses);
-        TrackedDevicePose_t* rawDevicePoses = (TrackedDevicePose_t*)$vec-ptr:(float *rawDevicePoses);
+        TrackedDevicePose_t* rawDevicePoses = (TrackedDevicePose_t*)$(void *vrmRawDevicePosesPtr);
 
         compositor->WaitGetPoses(
             rawDevicePoses, k_unMaxTrackedDeviceCount, NULL, 0);
@@ -555,13 +586,16 @@ createOpenVR = do
         Just system -> do
             (w,h) <- getRenderTargetSize system
             eyes <- forM [LeftEye, RightEye] $ \eye -> do
-                eyeProj  <- getEyeProjectionMatrix system eye 0.1 10000
+                eyeProj    <- getEyeProjectionMatrix system eye 0.1 10000
+                eyeProjRaw <- getEyeProjectionMatrixRaw system eye
+                --let eyeProjRaw = 0
                 eyeTrans <- inv44 <$> getEyeToHeadTransform system eye
 
                 multisampleFramebuffer <- createMultisampleFramebuffer (fromIntegral w) (fromIntegral h)
                 return EyeInfo
                     { eiEye = eye
                     , eiProjection = eyeProj
+                    , eiProjectionRaw = eyeProjRaw
                     , eiEyeHeadTrans = eyeTrans
                     , eiViewport = (0, 0, w, h)
                     , eiMultisampleFramebuffer = multisampleFramebuffer
@@ -583,7 +617,11 @@ createOpenVR = do
 
 createOpenVRMutable :: IO OpenVRMutable
 createOpenVRMutable = do
-    vrmRawDevicePoses    <- VM.new maxTrackedDeviceCount
+
+    vrmRawDevicePosesPtr <- [C.block|void* {
+        void* rawDevicePosesPtr = calloc(k_unMaxTrackedDeviceCount, sizeof(TrackedDevicePose_t));
+        return rawDevicePosesPtr;
+    }|]
     vrmM44DevicePoses    <- VM.new maxTrackedDeviceCount
     vrmControllerRoles   <- VM.new maxTrackedDeviceCount
     return OpenVRMutable{..}

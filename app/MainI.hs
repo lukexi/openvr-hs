@@ -33,7 +33,7 @@ startProfiler = liftIO $ do
         replicateM_ (floor timeMS) (writeChar name) >> writeChar '\n'
 
 
-    
+
     return eventsChan
 
 profileToChan :: MonadIO m => ProfilerChan -> Char -> m a -> m a
@@ -56,16 +56,16 @@ handsFromPoses OpenVR{..} handPosesByRole = forM handPosesByRole $ \(controllerR
               , hndGrip = grip
               , hndStart = start
               }
-        
+
         return hand
 
-data Uniforms = Uniforms 
+data Uniforms = Uniforms
     { uProjectionView :: UniformLocation (M44 GLfloat)
     , uCamera :: UniformLocation (V3 GLfloat)
     } deriving Data
 
 
-data Hand = Hand 
+data Hand = Hand
     { hndGrip :: Bool
     , hndStart :: Bool
     , hndTrigger :: GLfloat
@@ -86,12 +86,12 @@ streamingBufferCapacity :: Int
 streamingBufferCapacity = numInstances * 800
 
 generateTransforms :: GLfloat -> Int -> M44 GLfloat
-generateTransforms t i = 
+generateTransforms t i =
     let x = fromIntegral $ (i `mod` side)             - halfSide :: GLfloat
         y = fromIntegral $ (i `mod` side2 `div` side) - halfSide :: GLfloat
         z = fromIntegral $ (i `div` side2)            - halfSide :: GLfloat
-        m44 = mkTransformation 
-                (axisAngle (V3 0 1 0) t) 
+        m44 = mkTransformation
+                (axisAngle (V3 0 1 0) t)
                 (V3 x y z)
     in m44
 
@@ -112,9 +112,9 @@ main = do
     --profileChan <- startProfiler
     --let profile = profileToChan profileChan
     let profile _ a = a
-  
-    (window, events) <- reacquire 0 $ createWindow "OpenVR" 1024 768
-    
+
+    (window, _, events) <- reacquire 0 $ createWindow "OpenVR" 1024 768
+
     shader     <- createShaderProgram "app/cubeI.vert" "app/cubeI.frag"
     cubeGeo    <- cubeGeometry (0.1 :: V3 GLfloat) (V3 1 1 1)
     cubeShape  <- makeShape cubeGeo shader
@@ -124,7 +124,7 @@ main = do
     sab              <- makeSAB streamingBufferCapacity
     transformsBuffer <- bufferDataEmpty GL_STREAM_DRAW streamingBufferCapacity (Proxy :: Proxy (M44 GLfloat))
     colorsBuffer     <- bufferDataEmpty GL_STREAM_DRAW streamingBufferCapacity (Proxy :: Proxy (V4  GLfloat))
-    
+
     let resetShapeInstanceBuffers = withShape cubeShape $ do
 
             withArrayBuffer transformsBuffer $ do
@@ -135,25 +135,25 @@ main = do
                 resetSABBuffer sab colorsBuffer
                 assignFloatAttributeInstanced  shader "aInstanceColor" GL_FLOAT 4
     resetShapeInstanceBuffers
-    
+
     glEnable GL_DEPTH_TEST
     useProgram (sProgram cubeShape)
     mOpenVR <- reacquire 1 $ do
         hmdPresent <- isHMDPresent
         if hmdPresent then createOpenVR else return Nothing
-    
-    forM_ mOpenVR $ \openVR -> do  
+
+    forM_ mOpenVR $ \openVR -> do
         forM_ (listToMaybe $ ovrEyes openVR) $ \eye -> do
             let (_, _, w, h) = eiViewport eye
             setWindowSize window (fromIntegral w `div` 2) (fromIntegral h `div` 2)
-        
+
         openVRLoop window events cubeShape openVR sab transformsBuffer colorsBuffer resetShapeInstanceBuffers
-    
-        
+
+
     putStrLn "Done!"
 
 
-openVRLoop :: MonadIO m 
+openVRLoop :: MonadIO m
            => Window
            -> Events
            -> Shape Uniforms
@@ -170,26 +170,26 @@ openVRLoop window events cubeShape openVR@OpenVR{..} sab transformsBuffer colors
     forM_ evs $ closeOnEscape window
     _ <- pollNextEvent ovrSystem
     (headM44, handPosesByRole) <- waitGetPoses openVR
-    
+
     _hands <- handsFromPoses openVR handPosesByRole
 
     t <- (/ 2) . (+ 1) . sin . realToFrac . utctDayTime <$> liftIO getCurrentTime
     glClearColor 0.2 0.1 (t * 0.3) 1
-  
-    let viewM44 = inv44 headM44 
+
+    let viewM44 = inv44 headM44
 
     writeSAB sab numInstances resetShapeInstanceBuffers $ do
         fillSABBuffer transformsBuffer  (generateTransforms t)
         fillSABBuffer colorsBuffer      (generateColors t)
 
     -- Render each eye, with multisampling
-    forM_ ovrEyes $ \EyeInfo{..} -> withMultisamplingFramebuffer eiMultisampleFramebuffer $ do 
+    forM_ ovrEyes $ \EyeInfo{..} -> withMultisamplingFramebuffer eiMultisampleFramebuffer $ do
 
         glClear (GL_COLOR_BUFFER_BIT .|. GL_DEPTH_BUFFER_BIT)
         let (x, y, w, h) = eiViewport
             finalView    = eiEyeHeadTrans !*! viewM44
         glViewport x y w h
-        
+
         -- Render the scene
         render cubeShape sab eiProjection finalView headM44
 
@@ -200,10 +200,10 @@ openVRLoop window events cubeShape openVR@OpenVR{..} sab transformsBuffer colors
 
     -- Mirror to window
     forM_ (listToMaybe ovrEyes) $ mirrorOpenVREyeToWindow
-    
+
     --swapBuffers window
 
-render :: (MonadIO m) 
+render :: (MonadIO m)
        => Shape Uniforms
        -> StreamingArrayBuffer
        -> M44 GLfloat
@@ -213,9 +213,9 @@ render :: (MonadIO m)
 render cubeShape sab projM44 viewM44 headM44 = do
     let Uniforms{..} = sUniforms cubeShape
         projViewM44  = projM44 !*! viewM44
-    
+
     withShape cubeShape $ do
-        uniformV3 uCamera (headM44 ^. translation)        
+        uniformV3 uCamera (headM44 ^. translation)
         uniformM44 uProjectionView projViewM44
         drawSAB sab numInstances
 
