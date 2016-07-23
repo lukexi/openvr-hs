@@ -584,7 +584,7 @@ defaultOpenVRConfig :: OpenVRConfig
 defaultOpenVRConfig = OpenVRConfig
     { ovcZNear = 0.1
     , ovcZFar = 10000
-    , ovcMSAASamples = MSAASamples16
+    , ovcMSAASamples = MSAASamples8
     }
 
 createOpenVR :: IO (Maybe OpenVR)
