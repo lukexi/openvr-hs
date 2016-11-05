@@ -28,15 +28,18 @@ library
   include-dirs:        openvr/headers, cbits
   c-sources:           src/Graphics/VR/OpenVR.cpp
                        cbits/openvr_capi_helper.c
-  extra-libraries:     openvr_api
   ghc-options:         -Wall -O2
   ghc-prof-options:    -Wall -O2 -fprof-auto
   cc-options:          -O2
+  extra-libraries:     openvr_api
   if os(windows)
     extra-libraries:   libstdc++-6
     -- We store openvr_api.dll in /usr/local/bin
     extra-lib-dirs:    c:\msys64\usr\local\bin
     cc-options:        -fno-exceptions -std=c++0x
+  if os(osx)
+    extra-lib-dirs: /usr/local/lib
+    cc-options:  -std=c++11
 
 test-suite minimal
   type:                exitcode-stdio-1.0

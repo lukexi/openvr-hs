@@ -1,4 +1,5 @@
-#include <openvr_capi.h>
+// #include <openvr_capi.h>
+#include "openvr_capi_fixed.h"
 
 uint32_t VR_InitInternal( EVRInitError *peError, EVRApplicationType eApplicationType );
 

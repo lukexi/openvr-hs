@@ -6,6 +6,7 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE CPP #-}
 
 module Graphics.VR.OpenVR where
 
@@ -29,11 +30,16 @@ import qualified Data.Vector.Storable as V
 C.context (C.cppCtx <> C.funCtx <> C.vecCtx)
 
 -- Import OpenVR
---C.include "openvr.h"
+#if defined(mingw32_HOST_OS)
 C.include "openvr_mingw.h"
+C.include "malloc.h"
+#else
+C.include "openvr.h"
+C.include "stdlib.h"
+#endif
 C.include "stdio.h"
 C.include "string.h"
-C.include "malloc.h"
+
 
 C.using "namespace vr"
 
