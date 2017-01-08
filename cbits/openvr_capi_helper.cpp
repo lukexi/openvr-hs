@@ -2,7 +2,12 @@
 #include "openvr_capi_helper.h"
 #include <stdio.h>
 
-
+// Note: We use .cpp for this file because cabal doesn't
+// give us a cc-options for C++ only, and the
+// cc-options: -std=c++11
+// flag (which is needed for OpenVR.cpp via inline-cpp)
+// will break on this file if it uses the .c extension with
+// "error: invalid argument '-std=c++11' not allowed with 'C/ObjC'"
 
 struct VR_IVRSystem_FnTable *VRSystemFnTable() {
     char fnTableName[128];

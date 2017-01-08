@@ -27,7 +27,7 @@ library
   default-language:    Haskell2010
   include-dirs:        openvr/headers, cbits
   c-sources:           src/Graphics/VR/OpenVR.cpp
-                       cbits/openvr_capi_helper.c
+                       cbits/openvr_capi_helper.cpp
   ghc-options:         -Wall -O2
   ghc-prof-options:    -Wall -O2 -fprof-auto
   cc-options:          -O2
