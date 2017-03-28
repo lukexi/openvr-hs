@@ -27,7 +27,7 @@ library
   default-language:    Haskell2010
   include-dirs:        openvr/headers, cbits
   c-sources:           src/Graphics/VR/OpenVR.cpp
-                       cbits/openvr_capi_helper.cpp
+                       
   ghc-options:         -Wall -O2
   ghc-prof-options:    -Wall -O2 -fprof-auto
   cc-options:          -O2
@@ -37,9 +37,11 @@ library
     -- We store openvr_api.dll in /usr/local/bin
     extra-lib-dirs:    c:\msys64\usr\local\bin
     cc-options:        -fno-exceptions -std=c++0x
+    c-sources:         cbits/openvr_capi_helper.cpp
   if os(osx)
     extra-lib-dirs: /usr/local/lib
-    cc-options:  -std=c++11
+    cc-options:     -std=c++11
+    c-sources:      cbits/openvr_capi_helper.cpp
 
 test-suite minimal
   type:                exitcode-stdio-1.0

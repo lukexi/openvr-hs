@@ -17,7 +17,7 @@ import qualified Language.C.Inline.Cpp as C
 import Control.Monad.Trans
 import Data.Monoid
 import Linear.Extra
---import Text.RawString.QQ (r)
+import qualified Text.RawString.QQ as QQ
 --import Control.Arrow
 import Graphics.GL.Pal
 import Control.Monad
@@ -43,7 +43,50 @@ C.include "string.h"
 
 C.using "namespace vr"
 
-C.include "openvr_capi_helper.h"
+C.verbatim [QQ.r|
+void fillFromMatrix44(HmdMatrix44_t matrix, float* out) {
+
+    out[0]  = matrix.m[0][0];
+    out[1]  = matrix.m[1][0];
+    out[2]  = matrix.m[2][0];
+    out[3]  = matrix.m[3][0];
+    out[4]  = matrix.m[0][1];
+    out[5]  = matrix.m[1][1];
+    out[6]  = matrix.m[2][1];
+    out[7]  = matrix.m[3][1];
+    out[8]  = matrix.m[0][2];
+    out[9]  = matrix.m[1][2];
+    out[10] = matrix.m[2][2];
+    out[11] = matrix.m[3][2];
+    out[12] = matrix.m[0][3];
+    out[13] = matrix.m[1][3];
+    out[14] = matrix.m[2][3];
+    out[15] = matrix.m[3][3];
+}
+
+void fillFromMatrix34(HmdMatrix34_t matrix, float* out) {
+
+    out[0]  = matrix.m[0][0];
+    out[1]  = matrix.m[1][0];
+    out[2]  = matrix.m[2][0];
+    out[3]  = 0;
+    out[4]  = matrix.m[0][1];
+    out[5]  = matrix.m[1][1];
+    out[6]  = matrix.m[2][1];
+    out[7]  = 0;
+    out[8]  = matrix.m[0][2];
+    out[9]  = matrix.m[1][2];
+    out[10] = matrix.m[2][2];
+    out[11] = 0;
+    out[12] = matrix.m[0][3];
+    out[13] = matrix.m[1][3];
+    out[14] = matrix.m[2][3];
+    out[15] = 1;
+}
+
+|]
+
+-- C.include "openvr_capi_helper.h"
 
 data EyeInfo = EyeInfo
     { eiEye                    :: HmdEye
@@ -100,7 +143,7 @@ data TrackedDeviceClass = TrackedDeviceClassInvalid
                         | TrackedDeviceClassHMD
                         | TrackedDeviceClassController
                         | TrackedDeviceClassTrackingReference
-                        | TrackedDeviceClassOther
+                        | TrackedDeviceClassGenericTracker
 
 maxTrackedDeviceCount :: Num b => b
 maxTrackedDeviceCount = fromIntegral [C.pure|int{k_unMaxTrackedDeviceCount}|]
@@ -114,7 +157,7 @@ trackedDeviceClassToC TrackedDeviceClassInvalid           = [C.pure|int{TrackedD
 trackedDeviceClassToC TrackedDeviceClassHMD               = [C.pure|int{TrackedDeviceClass_HMD}|]
 trackedDeviceClassToC TrackedDeviceClassController        = [C.pure|int{TrackedDeviceClass_Controller}|]
 trackedDeviceClassToC TrackedDeviceClassTrackingReference = [C.pure|int{TrackedDeviceClass_TrackingReference}|]
-trackedDeviceClassToC TrackedDeviceClassOther             = [C.pure|int{TrackedDeviceClass_Other}|]
+trackedDeviceClassToC TrackedDeviceClassGenericTracker    = [C.pure|int{TrackedDeviceClass_GenericTracker}|]
 
 data EButton = EButtonSystem
              | EButtonApplicationMenu
@@ -278,7 +321,7 @@ getEyeProjectionMatrix (IVRSystem systemPtr) eye (realToFrac -> zNear) (realToFr
             // The C++ API crashes when calling GetProjectionMatrix, so we work around by calling the
             // C API (see cbits/Why.txt)
             HmdMatrix44_t projection = VRSystem()->GetProjectionMatrix(
-                eye, $(float zNear), $(float zFar), API_OpenGL);
+                eye, $(float zNear), $(float zFar));
             fillFromMatrix44(projection, $(float* ptr));
 
             //copyProjectionMatrixForEye((int)eye, $(float zNear), $(float zFar), $(float* ptr));
@@ -324,9 +367,9 @@ getEyeToHeadTransform (IVRSystem systemPtr) eye = liftIO $ do
 
             // The C++ API crashes when calling GetEyeToHeadTransform, so we work around by calling the
             // C API (see cbits/Why.txt)
-            //HmdMatrix34_t transform = system->GetEyeToHeadTransform(eye);
-            //fillFromMatrix34(transform, $(float* ptr));
-            copyEyeToHeadTransformForEye((int)eye, $(float* ptr));
+            HmdMatrix34_t transform = system->GetEyeToHeadTransform(eye);
+            fillFromMatrix34(transform, $(float* ptr));
+            //copyEyeToHeadTransformForEye((int)eye, $(float* ptr));
         }|]
 
 isUsingLighthouse :: MonadIO m => IVRSystem -> m Bool
@@ -335,12 +378,12 @@ isUsingLighthouse (IVRSystem systemPtr) = liftIO $ do
         IVRSystem *system = (IVRSystem *)$(void* systemPtr);
         bool foundLighthouse = 0;
         for (int nDevice = 0; nDevice < k_unMaxTrackedDeviceCount; nDevice++) {
-            char trackingSystemName[k_unTrackingStringSize];
+            char trackingSystemName[k_unMaxPropertyStringSize];
             ETrackedPropertyError error;
             system->GetStringTrackedDeviceProperty(
                 nDevice,
                 Prop_TrackingSystemName_String,
-                trackingSystemName, k_unTrackingStringSize, &error);
+                trackingSystemName, k_unMaxPropertyStringSize, &error);
             if (strcmp(trackingSystemName, "lighthouse") == 0) {
               foundLighthouse = 1;
             }
@@ -473,7 +516,7 @@ getControllerState (IVRSystem systemPtr) controllerRole = liftIO $ do
             int nDevice = system->GetTrackedDeviceIndexForControllerRole(controllerRole);
 
             VRControllerState_t state;
-            system->GetControllerState(nDevice, &state);
+            system->GetControllerState(nDevice, &state, sizeof(state));
 
             // for (int nAxis; nAxis < k_unControllerStateAxisCount; nAxis++) {
             //   printf("%i Axis %i: %f \t%f\n",
@@ -571,7 +614,7 @@ submitFrameForEye (IVRCompositor compositorPtr) eye (fromIntegral -> framebuffer
 
         Texture_t texture = {
             (void*)$(unsigned long long framebufferTextureID),
-            API_OpenGL,
+            TextureType_OpenGL,
             ColorSpace_Linear
         };
 
